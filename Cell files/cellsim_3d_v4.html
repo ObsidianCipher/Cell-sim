@@ -1,0 +1,2171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cell Cycle Simulation 3D · v4</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#060608; color:#c8e6c9; font-family:'Courier New',monospace; overflow:hidden; }
+  canvas { display:block; }
+  #cell-labels { position:fixed;top:0;left:0;pointer-events:none;z-index:40; }
+  .cell-label {
+    position:absolute; transform:translate(-50%,-100%);
+    font-size:9px; color:rgba(74,222,128,0.7); letter-spacing:1px;
+    text-shadow:0 0 6px rgba(0,0,0,0.8); white-space:nowrap;
+    transition:opacity 0.3s;
+  }
+  .cell-label.selected { color:#fbbf24; font-weight:700; }
+
+  /* HUD */
+  #hud-top {
+    position:fixed; top:0; left:0; right:0; height:52px;
+    background:rgba(6,8,12,0.85); backdrop-filter:blur(8px);
+    border-bottom:1px solid rgba(100,200,130,0.15);
+    display:flex; align-items:center; padding:0 20px; gap:24px; z-index:100;
+  }
+  #hud-top .logo { font-size:13px; font-weight:700; letter-spacing:2px; color:#4ade80; }
+  .stat { font-size:11px; color:#6ee7a0; display:flex; flex-direction:column; gap:2px; }
+  .stat span:first-child { color:#2d6a4f; font-size:9px; letter-spacing:1px; text-transform:uppercase; }
+  .stat span:last-child { font-size:13px; color:#a7f3c8; }
+  #speed-ctrl { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:11px; }
+  #speed-ctrl label { color:#4ade80; letter-spacing:1px; }
+  .speed-btn {
+    background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.25);
+    color:#4ade80; padding:4px 10px; border-radius:3px; cursor:pointer; font-size:11px;
+    font-family:'Courier New',monospace; transition:all 0.2s;
+  }
+  .speed-btn:hover { background:rgba(74,222,128,0.2); }
+  .speed-btn.active { background:rgba(74,222,128,0.3); border-color:#4ade80; color:#fff; }
+  #pause-btn {
+    background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.3);
+    color:#4ade80; padding:6px 16px; border-radius:3px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:12px; letter-spacing:1px;
+  }
+  #pause-btn:hover { background:rgba(74,222,128,0.25); }
+  #add-cell-btn {
+    background:rgba(74,222,128,0.18); border:1px solid rgba(74,222,128,0.5);
+    color:#4ade80; padding:6px 14px; border-radius:3px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:12px; letter-spacing:1px;
+    transition:all 0.2s; position:relative; overflow:hidden;
+  }
+  #add-cell-btn:hover { background:rgba(74,222,128,0.32); box-shadow:0 0 12px rgba(74,222,128,0.25); }
+  #add-cell-btn:active { transform:scale(0.96); }
+  #add-cell-btn.pop { animation: cellpop 0.3s ease; }
+  @keyframes cellpop { 0%{transform:scale(1)} 50%{transform:scale(1.12)} 100%{transform:scale(1)} }
+
+  /* Zoom controls */
+  #zoom-ctrl {
+    display:flex; align-items:center; gap:6px; padding:0 4px;
+    border-left:1px solid rgba(74,222,128,0.12); margin-left:4px;
+  }
+  #zoom-ctrl label { color:#2d6a4f; font-size:9px; letter-spacing:1px; }
+  .zoom-btn {
+    background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.25);
+    color:#4ade80; width:26px; height:26px; border-radius:3px; cursor:pointer;
+    font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center;
+    font-family:'Courier New',monospace; transition:all 0.15s; user-select:none;
+  }
+  .zoom-btn:hover { background:rgba(74,222,128,0.25); }
+  .zoom-btn:active { transform:scale(0.92); }
+  #zoom-level { font-size:11px; color:#86efac; min-width:38px; text-align:center; }
+  #focus-btn {
+    background:rgba(96,165,250,0.1); border:1px solid rgba(96,165,250,0.3);
+    color:#60a5fa; padding:4px 10px; border-radius:3px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:10px; letter-spacing:1px; transition:all 0.2s;
+  }
+  #focus-btn:hover { background:rgba(96,165,250,0.22); }
+  #focus-btn.active { background:rgba(96,165,250,0.3); border-color:#60a5fa; color:#fff; }
+
+  /* Focus mode overlay ring */
+  #focus-ring {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:80px; height:80px; border-radius:50%;
+    border:1px solid rgba(96,165,250,0.4);
+    pointer-events:none; z-index:50; display:none;
+    box-shadow:0 0 20px rgba(96,165,250,0.15);
+  }
+
+  /* Cell info panel */
+  #cell-panel {
+    position:fixed; bottom:20px; left:20px; width:260px;
+    background:rgba(6,12,10,0.92); backdrop-filter:blur(10px);
+    border:1px solid rgba(74,222,128,0.2); border-radius:6px;
+    padding:16px; z-index:100; display:none;
+  }
+  #cell-panel h3 { font-size:11px; letter-spacing:2px; color:#4ade80; margin-bottom:12px; }
+  .protein-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .protein-name { width:80px; font-size:10px; color:#86efac; }
+  .protein-bar-bg { flex:1; height:6px; background:rgba(255,255,255,0.08); border-radius:3px; overflow:hidden; }
+  .protein-bar { height:100%; border-radius:3px; transition:width 0.3s; }
+  .protein-val { width:32px; font-size:10px; color:#6ee7a0; text-align:right; }
+
+  .phase-badge {
+    display:inline-block; padding:3px 10px; border-radius:3px; font-size:10px;
+    letter-spacing:1px; margin-bottom:12px;
+  }
+  .checkpoint-row { font-size:10px; color:#86efac; display:flex; justify-content:space-between; margin-top:8px; }
+
+  /* Phase legend */
+  #legend {
+    position:fixed; bottom:20px; right:20px; width:180px;
+    background:rgba(6,12,10,0.92); backdrop-filter:blur(10px);
+    border:1px solid rgba(74,222,128,0.15); border-radius:6px;
+    padding:14px; z-index:100;
+  }
+  #legend h4 { font-size:10px; letter-spacing:2px; color:#2d6a4f; margin-bottom:10px; }
+  .leg-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .leg-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .leg-label { font-size:10px; color:#86efac; }
+
+  /* Modification Tab */
+  #mod-tab-btn {
+    position:fixed; right:0; top:50%; transform:translateY(-50%);
+    background:rgba(74,222,128,0.12); border:1px solid rgba(74,222,128,0.3);
+    border-right:none; color:#4ade80; padding:14px 8px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:11px; letter-spacing:2px;
+    writing-mode:vertical-rl; border-radius:4px 0 0 4px; z-index:200;
+    transition:background 0.2s;
+  }
+  #mod-tab-btn:hover { background:rgba(74,222,128,0.22); }
+
+  #mod-panel {
+    position:fixed; right:-360px; top:52px; bottom:0; width:360px;
+    background:rgba(4,8,6,0.97); backdrop-filter:blur(12px);
+    border-left:1px solid rgba(74,222,128,0.2);
+    z-index:150; transition:right 0.35s cubic-bezier(0.4,0,0.2,1);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  #mod-panel.open { right:0; }
+  #mod-panel-inner { flex:1; overflow-y:auto; padding:20px; }
+  #mod-panel-inner::-webkit-scrollbar { width:4px; }
+  #mod-panel-inner::-webkit-scrollbar-track { background:transparent; }
+  #mod-panel-inner::-webkit-scrollbar-thumb { background:rgba(74,222,128,0.2); border-radius:2px; }
+
+  .mod-header { font-size:12px; letter-spacing:3px; color:#4ade80; padding:18px 20px 14px; border-bottom:1px solid rgba(74,222,128,0.12); }
+  .mod-section { margin-bottom:20px; }
+  .mod-section-title { font-size:9px; letter-spacing:2px; color:#2d6a4f; margin-bottom:12px; text-transform:uppercase; }
+
+  .chem-row { margin-bottom:14px; }
+  .chem-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+  .chem-name { font-size:11px; color:#86efac; }
+  .chem-formula { font-size:9px; color:#2d6a4f; }
+  .chem-val { font-size:11px; color:#4ade80; min-width:36px; text-align:right; }
+  .chem-slider { width:100%; -webkit-appearance:none; height:4px; border-radius:2px; outline:none; cursor:pointer; }
+  .chem-slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; cursor:pointer; border:2px solid #060608; }
+  .chem-effect { font-size:9px; color:#2d6a4f; margin-top:4px; line-height:1.5; min-height:14px; }
+
+  .preset-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .preset-btn {
+    background:rgba(74,222,128,0.06); border:1px solid rgba(74,222,128,0.2);
+    color:#4ade80; padding:8px; border-radius:3px; cursor:pointer; font-size:10px;
+    font-family:'Courier New',monospace; letter-spacing:1px; transition:all 0.2s;
+    text-align:center;
+  }
+  .preset-btn:hover { background:rgba(74,222,128,0.15); border-color:#4ade80; }
+
+  .reset-env-btn {
+    width:100%; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);
+    color:#f87171; padding:10px; border-radius:3px; cursor:pointer; font-size:11px;
+    font-family:'Courier New',monospace; letter-spacing:1px; transition:all 0.2s; margin-top:8px;
+  }
+  .reset-env-btn:hover { background:rgba(239,68,68,0.18); }
+
+  #tooltip {
+    position:fixed; pointer-events:none; background:rgba(6,12,10,0.95);
+    border:1px solid rgba(74,222,128,0.3); border-radius:4px; padding:8px 12px;
+    font-size:10px; color:#86efac; z-index:300; display:none; max-width:200px; line-height:1.5;
+  }
+
+  #dividing-flash {
+    position:fixed; inset:0; background:rgba(74,222,128,0.04);
+    pointer-events:none; z-index:50; opacity:0; transition:opacity 0.3s;
+  }
+</style>
+</head>
+<body>
+
+<div id="dividing-flash"></div>
+<div id="cell-labels"></div>
+
+<!-- TOP HUD -->
+<div id="hud-top">
+  <div class="logo">CELLSIM·3D · v4</div>
+  <div class="stat"><span>BIO TIME</span><span id="bio-time">00:00:00</span></div>
+  <div class="stat"><span>CELLS</span><span id="cell-count">1</span></div>
+  <div class="stat"><span>GENERATION</span><span id="generation">1</span></div>
+  <div class="stat"><span>DIVISIONS</span><span id="divisions">0</span></div>
+  <div id="speed-ctrl">
+    <label>SPEED</label>
+    <button class="speed-btn active" data-speed="1">1×</button>
+    <button class="speed-btn" data-speed="10">10×</button>
+    <button class="speed-btn" data-speed="50">50×</button>
+    <button class="speed-btn" data-speed="200">200×</button>
+    <button class="speed-btn" data-speed="1000">1000×</button>
+    <button id="pause-btn">⏸ PAUSE</button>
+    <button id="add-cell-btn" onclick="addCellManual()">+ ADD CELL</button>
+    <div id="zoom-ctrl">
+      <label>ZOOM</label>
+      <button class="zoom-btn" onclick="zoomStep(1)">+</button>
+      <span id="zoom-level">1.0×</span>
+      <button class="zoom-btn" onclick="zoomStep(-1)">−</button>
+      <button id="focus-btn" onclick="toggleFocusMode()">⊙ FOCUS</button>
+    </div>
+  </div>
+</div>
+<div id="focus-ring"></div>
+
+<!-- CELL DETAIL PANEL -->
+<div id="cell-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <h3 style="margin:0">SELECTED CELL</h3>
+    <button onclick="document.getElementById('cell-panel').style.display='none';selectedCellId=null;"
+      style="background:none;border:none;color:#2d6a4f;cursor:pointer;font-size:14px;line-height:1;">✕</button>
+  </div>
+  <div id="cell-phase-badge" class="phase-badge"></div>
+  <div id="cell-progress-label" style="font-size:10px;color:#2d6a4f;margin-bottom:10px;"></div>
+  <div style="font-size:9px;color:#2d6a4f;letter-spacing:1px;margin-bottom:6px;">PROTEINS</div>
+  <div id="protein-bars"></div>
+  <div class="checkpoint-row">
+    <span>G1/S: <span id="ck-g1s" style="color:#4ade80">—</span></span>
+    <span>G2/M: <span id="ck-g2m" style="color:#4ade80">—</span></span>
+  </div>
+  <div style="font-size:9px;color:#2d6a4f;letter-spacing:1px;margin-top:10px;margin-bottom:6px;">ORGANELLES — click to inspect</div>
+  <div id="organelle-chips" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+</div>
+
+<!-- COMPONENT DETAIL MODAL -->
+<div id="comp-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:340px;background:rgba(4,10,7,0.97);backdrop-filter:blur(14px);
+  border:1px solid rgba(74,222,128,0.3);border-radius:8px;z-index:500;padding:0;overflow:hidden;">
+  <div id="comp-modal-header" style="padding:14px 18px;border-bottom:1px solid rgba(74,222,128,0.12);
+    display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div id="comp-modal-icon" style="font-size:22px;margin-bottom:2px;"></div>
+      <div id="comp-modal-title" style="font-size:13px;font-weight:600;color:#4ade80;letter-spacing:1px;"></div>
+      <div id="comp-modal-latin" style="font-size:10px;color:#2d6a4f;margin-top:1px;font-style:italic;"></div>
+    </div>
+    <button onclick="document.getElementById('comp-modal').style.display='none';document.getElementById('comp-modal-overlay').style.display='none';window._openModalComponent=null;"
+      style="background:none;border:none;color:#2d6a4f;cursor:pointer;font-size:18px;align-self:flex-start;">✕</button>
+  </div>
+  <div style="padding:16px 18px;max-height:420px;overflow-y:auto;" id="comp-modal-body">
+    <div id="comp-modal-status" style="margin-bottom:12px;"></div>
+    <div id="comp-modal-desc" style="font-size:11px;color:#86efac;line-height:1.7;margin-bottom:14px;"></div>
+    <div id="comp-modal-stats" style="margin-bottom:14px;"></div>
+    <div id="comp-modal-function" style="font-size:10px;color:#4ade80;letter-spacing:1px;margin-bottom:6px;">MOLECULAR FUNCTION</div>
+    <div id="comp-modal-mol" style="font-size:11px;color:#6ee7a0;line-height:1.7;"></div>
+    <div id="comp-modal-disease" style="margin-top:14px;padding:10px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:4px;display:none;">
+      <div style="font-size:9px;color:#f87171;letter-spacing:1px;margin-bottom:4px;">STRESS / DISEASE LINK</div>
+      <div id="comp-modal-disease-text" style="font-size:10px;color:#fca5a5;line-height:1.6;"></div>
+    </div>
+  </div>
+</div>
+<div id="comp-modal-overlay" onclick="document.getElementById('comp-modal').style.display='none';document.getElementById('comp-modal-overlay').style.display='none';window._openModalComponent=null;"
+  style="display:none;position:fixed;inset:0;z-index:499;"></div>
+
+<!-- LEGEND -->
+<div id="legend">
+  <h4>PHASE LEGEND</h4>
+  <div class="leg-row"><div class="leg-dot" style="background:#4ade80"></div><div class="leg-label">G1 — Growth</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#60a5fa"></div><div class="leg-label">S — DNA Replication</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#a78bfa"></div><div class="leg-label">G2 — Prep for Mitosis</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#f59e0b"></div><div class="leg-label">Prophase</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#f97316"></div><div class="leg-label">Metaphase</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#ef4444"></div><div class="leg-label">Anaphase</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#ec4899"></div><div class="leg-label">Telophase</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#8b5cf6"></div><div class="leg-label">Cytokinesis</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#6b7280"></div><div class="leg-label">Arrested / Apoptosis</div></div>
+  <div style="font-size:9px;color:#2d6a4f;letter-spacing:1px;margin:10px 0 6px;">ORGANELLES</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#fb923c"></div><div class="leg-label">Mitochondria</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#60a5fa"></div><div class="leg-label">Nucleus</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#c084fc"></div><div class="leg-label">Endoplasmic Reticulum</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#86efac"></div><div class="leg-label">Golgi Apparatus</div></div>
+  <div class="leg-row"><div class="leg-dot" style="background:#fbbf24"></div><div class="leg-label">Centrosome</div></div>
+</div>
+
+<!-- MOD TAB BUTTON -->
+<button id="mod-tab-btn" onclick="toggleModPanel()">ENVIRONMENT</button>
+
+<!-- MOD PANEL -->
+<div id="mod-panel">
+  <div class="mod-header">ENVIRONMENT CONTROL</div>
+  <div id="mod-panel-inner">
+
+    <div class="mod-section">
+      <div class="mod-section-title">Presets</div>
+      <div class="preset-grid">
+        <button class="preset-btn" onclick="applyPreset('normal')">◉ Normal</button>
+        <button class="preset-btn" onclick="applyPreset('hypoxia')">⚠ Hypoxia</button>
+        <button class="preset-btn" onclick="applyPreset('cancer')">☣ Cancer</button>
+        <button class="preset-btn" onclick="applyPreset('starvation')">⬇ Starvation</button>
+        <button class="preset-btn" onclick="applyPreset('toxic')">☠ Toxic Stress</button>
+        <button class="preset-btn" onclick="applyPreset('optimal')">★ Optimal</button>
+      </div>
+    </div>
+
+    <div class="mod-section">
+      <div class="mod-section-title">Respiratory Gases</div>
+      <div id="slider-O2"></div>
+      <div id="slider-CO2"></div>
+      <div id="slider-N2"></div>
+    </div>
+
+    <div class="mod-section">
+      <div class="mod-section-title">Energy & Nutrients</div>
+      <div id="slider-ATP"></div>
+      <div id="slider-Glucose"></div>
+      <div id="slider-AminoAcids"></div>
+    </div>
+
+    <div class="mod-section">
+      <div class="mod-section-title">Signaling Molecules</div>
+      <div id="slider-EGF"></div>
+      <div id="slider-p53"></div>
+      <div id="slider-Ca2"></div>
+      <div id="slider-ROS"></div>
+    </div>
+
+    <div class="mod-section">
+      <div class="mod-section-title">Physical</div>
+      <div id="slider-Temperature"></div>
+      <div id="slider-pH"></div>
+    </div>
+
+    <button class="reset-env-btn" onclick="applyPreset('normal')">↺ RESET ENVIRONMENT</button>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ========== GLOBALS (hoisted) ==========
+let focusMode = false;
+let selectedCellId = null;
+
+// ========== ENVIRONMENT STATE ==========
+const ENV = {
+  O2: 100, CO2: 40, N2: 78,
+  ATP: 100, Glucose: 100, AminoAcids: 100,
+  EGF: 100, p53: 100, Ca2: 100, ROS: 0,
+  Temperature: 37, pH: 7.4
+};
+
+const CHEM_DEFS = [
+  { key:'O2', name:'Oxygen', formula:'O₂', unit:'%', min:0, max:100, color:'#4ade80',
+    effect: v => v>60?'Normal oxidative phosphorylation':v>20?'Hypoxia: HIF-1α stabilizes, cycle slows':'Critical: apoptosis triggered' },
+  { key:'CO2', name:'Carbon Dioxide', formula:'CO₂', unit:'%', min:0, max:100, color:'#86efac',
+    effect: v => v>70?'Acidosis: CDK activity drops':v<15?'Alkalosis: mitosis disrupted':'Normal pH balance' },
+  { key:'N2', name:'Nitrogen', formula:'N₂', unit:'%', min:0, max:100, color:'#a7f3c8',
+    effect: v => 'Inert gas — affects atmospheric pressure' },
+  { key:'ATP', name:'ATP / Energy', formula:'ATP', unit:'%', min:0, max:100, color:'#fbbf24',
+    effect: v => v>50?'Normal energy metabolism':v>20?'AMPK active, mTOR inhibited — arrest':'Necrosis risk: energy collapse' },
+  { key:'Glucose', name:'Glucose', formula:'C₆H₁₂O₆', unit:'%', min:0, max:100, color:'#fb923c',
+    effect: v => v>50?'Normal glycolysis':'Warburg effect suppressed, G1 arrest' },
+  { key:'AminoAcids', name:'Amino Acids', formula:'AA', unit:'%', min:0, max:100, color:'#f472b6',
+    effect: v => v>50?'Protein synthesis normal':'mTORC1 inhibited — growth arrest' },
+  { key:'EGF', name:'Growth Factors', formula:'EGF/IGF', unit:'%', min:0, max:100, color:'#c084fc',
+    effect: v => v>30?'Ras/MAPK pathway active, G1 drive':'Quiescence (G0) — cells exit cycle' },
+  { key:'p53', name:'p53 Level', formula:'TP53', unit:'%', min:0, max:100, color:'#f87171',
+    effect: v => v>50?'Tumor suppressor active — checkpoints intact':v<20?'Cancer phenotype: checkpoints bypassed':'Partial checkpoint dysfunction' },
+  { key:'Ca2', name:'Calcium', formula:'Ca²⁺', unit:'%', min:0, max:100, color:'#67e8f9',
+    effect: v => v>40?'Normal cytokinesis':'Cytokinesis failure → multinucleated cells' },
+  { key:'ROS', name:'Reactive O₂ Sp.', formula:'ROS', unit:'%', min:0, max:100, color:'#fca5a5',
+    effect: v => v<20?'Normal redox state':v<50?'Mild DNA damage, p53 rises':'Severe oxidative stress → apoptosis' },
+  { key:'Temperature', name:'Temperature', formula:'T°C', unit:'°C', min:20, max:45, color:'#fb923c',
+    effect: v => Math.abs(v-37)<1?'Optimal 37°C':v>40?'Heat shock: HSP70 induced, spindle fails':v<34?'Cold: kinase activity drops, cycle slows':'' },
+  { key:'pH', name:'pH Level', formula:'pH', unit:'', min:5.5, max:8.5, color:'#a78bfa',
+    effect: v => Math.abs(v-7.4)<0.3?'Normal physiological pH':v<6.8?'Acidosis: CDK inhibition':v>7.8?'Alkalosis: abnormal mitosis':'' },
+];
+
+const PRESETS = {
+  normal:     { O2:100, CO2:40, N2:78, ATP:100, Glucose:100, AminoAcids:100, EGF:100, p53:100, Ca2:100, ROS:0, Temperature:37, pH:7.4 },
+  hypoxia:    { O2:15, CO2:60, N2:78, ATP:45, Glucose:80, AminoAcids:80, EGF:80, p53:100, Ca2:80, ROS:35, Temperature:37, pH:7.1 },
+  cancer:     { O2:90, CO2:50, N2:78, ATP:120, Glucose:100, AminoAcids:100, EGF:120, p53:5, Ca2:80, ROS:20, Temperature:37, pH:6.9 },
+  starvation: { O2:90, CO2:40, N2:78, ATP:20, Glucose:10, AminoAcids:15, EGF:20, p53:80, Ca2:70, ROS:25, Temperature:37, pH:7.2 },
+  toxic:      { O2:80, CO2:55, N2:78, ATP:60, Glucose:70, AminoAcids:60, EGF:60, p53:100, Ca2:50, ROS:80, Temperature:39.5, pH:6.7 },
+  optimal:    { O2:100, CO2:38, N2:78, ATP:100, Glucose:100, AminoAcids:100, EGF:100, p53:100, Ca2:100, ROS:0, Temperature:37, pH:7.4 },
+};
+
+// ========== THREE.JS SETUP ==========
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060608);
+scene.fog = new THREE.FogExp2(0x060608, 0.018);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 30);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+// Lights
+const ambient = new THREE.AmbientLight(0x0a1a0a, 0.6);
+scene.add(ambient);
+const pointLight1 = new THREE.PointLight(0x4ade80, 1.2, 80);
+pointLight1.position.set(10, 10, 10);
+scene.add(pointLight1);
+const pointLight2 = new THREE.PointLight(0x1e40af, 0.8, 80);
+pointLight2.position.set(-10, -10, -10);
+scene.add(pointLight2);
+const pointLight3 = new THREE.PointLight(0x06b6d4, 0.5, 60);
+pointLight3.position.set(0, 20, 0);
+scene.add(pointLight3);
+
+// Starfield
+(function() {
+  const geo = new THREE.BufferGeometry();
+  const verts = [];
+  for(let i=0;i<2000;i++) {
+    verts.push((Math.random()-0.5)*400,(Math.random()-0.5)*400,(Math.random()-0.5)*400);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
+  const mat = new THREE.PointsMaterial({ color:0x1a3a2a, size:0.3, sizeAttenuation:true });
+  scene.add(new THREE.Points(geo, mat));
+})();
+
+// Orbit controls (manual)
+let isDragging=false, prevMouse={x:0,y:0};
+let spherical = { theta:0, phi:Math.PI/2, r:30 };
+const cameraTarget = new THREE.Vector3(0,0,0);
+
+let mouseDownPos = {x:0, y:0};
+let hasDragged = false;
+renderer.domElement.addEventListener('mousedown', e=>{
+  if(e.target!==renderer.domElement) return;
+  isDragging=true; hasDragged=false;
+  mouseDownPos={x:e.clientX,y:e.clientY};
+  prevMouse={x:e.clientX,y:e.clientY};
+});
+window.addEventListener('mouseup', ()=>{ isDragging=false; });
+window.addEventListener('mousemove', e=>{
+  if(isDragging) {
+    const dx=(e.clientX-prevMouse.x)*0.005;
+    const dy=(e.clientY-prevMouse.y)*0.005;
+    const totalDx = e.clientX - mouseDownPos.x;
+    const totalDy = e.clientY - mouseDownPos.y;
+    if(Math.abs(totalDx) > 4 || Math.abs(totalDy) > 4) hasDragged = true;
+    spherical.theta -= dx;
+    spherical.phi = Math.max(0.1, Math.min(Math.PI-0.1, spherical.phi+dy));
+    prevMouse={x:e.clientX,y:e.clientY};
+    return;
+  }
+  // Organelle hover tooltip
+  const tip = document.getElementById('tooltip');
+  mouse2d.x = (e.clientX/window.innerWidth)*2-1;
+  mouse2d.y = -(e.clientY/window.innerHeight)*2+1;
+  raycaster.setFromCamera(mouse2d, camera);
+  const hovered = raycaster.intersectObjects(scene.children, true);
+  let hoveredComp = null, hoveredCid = null;
+  for(const h of hovered) {
+    const ud = h.object.userData;
+    if(!ud || !ud.cellId) continue;
+    if(ud.component && ud.component !== 'membrane' && ud.component !== 'glow') {
+      hoveredComp = ud.component; hoveredCid = ud.cellId; break;
+    }
+    if(ud.component === 'membrane' && !hoveredComp) {
+      hoveredComp = 'membrane'; hoveredCid = ud.cellId; // allow membrane tooltip
+    }
+  }
+  if(hoveredComp && hoveredCid) {
+    const comp = hoveredComp; const cid = hoveredCid;
+    const data = ORGANELLE_DATA[comp];
+    const cell = cells.find(c=>c.id===cid);
+    if(data && cell) {
+      tip.style.display='block';
+      tip.style.left=(e.clientX+14)+'px';
+      tip.style.top=(e.clientY-10)+'px';
+      tip.innerHTML = `<span style="color:${data.color};font-weight:600;">${data.icon} ${data.name}</span><br><span style="color:#2d6a4f;font-size:9px;">Click to inspect</span>`;
+      renderer.domElement.style.cursor='pointer';
+    } else { tip.style.display='none'; renderer.domElement.style.cursor='default'; }
+  } else { tip.style.display='none'; renderer.domElement.style.cursor='default'; }
+});
+renderer.domElement.addEventListener('wheel', e=>{
+  spherical.r = Math.max(5, Math.min(120, spherical.r + e.deltaY*0.05));
+});
+
+function updateCamera() {
+  if(focusMode && selectedCellId) {
+    const cell = cells.find(c=>c.id===selectedCellId);
+    if(cell) cameraTarget.lerp(cell.group.position, 0.06);
+  }
+  camera.position.set(
+    cameraTarget.x + spherical.r*Math.sin(spherical.phi)*Math.sin(spherical.theta),
+    cameraTarget.y + spherical.r*Math.cos(spherical.phi),
+    cameraTarget.z + spherical.r*Math.sin(spherical.phi)*Math.cos(spherical.theta)
+  );
+  camera.lookAt(cameraTarget);
+  updateZoomLabel();
+}
+
+// Raycaster
+const raycaster = new THREE.Raycaster();
+const mouse2d = new THREE.Vector2();
+
+renderer.domElement.addEventListener('click', e=>{
+  if(hasDragged) return;
+  mouse2d.x = (e.clientX/window.innerWidth)*2-1;
+  mouse2d.y = -(e.clientY/window.innerHeight)*2+1;
+  raycaster.setFromCamera(mouse2d, camera);
+
+  // Use scene recursive intersect — get ALL hits sorted by distance
+  const hits = raycaster.intersectObjects(scene.children, true);
+
+  // Find first hit that has a known component (skips membrane, glow, starfield, lights)
+  let chosenHit = null;
+  let cellHit = null; // fallback: any membrane hit = cell selected
+
+  // Priority: specific small organelles > larger containers > membrane
+  const PRIORITY = { nucleolus:0, centrosome:0, chromosome:0, actinring:1, mitochondrion:1, golgi:1, er:1, nucleus:2, membrane:3 };
+  let allOrgHits = [];
+  for(const hit of hits) {
+    const ud = hit.object.userData;
+    if(!ud || !ud.cellId || ud.component === 'glow') continue;
+    allOrgHits.push(hit);
+  }
+  // Sort by priority (lower = more specific), then by distance
+  allOrgHits.sort((a,b) => {
+    const pa = PRIORITY[a.object.userData.component] ?? 5;
+    const pb = PRIORITY[b.object.userData.component] ?? 5;
+    if(pa !== pb) return pa - pb;
+    return a.distance - b.distance;
+  });
+  for(const hit of allOrgHits) {
+    const ud = hit.object.userData;
+    if(ud.component === 'membrane') { if(!cellHit) cellHit = hit; continue; }
+    chosenHit = hit; break;
+  }
+
+  const finalHit = chosenHit || cellHit;
+  if(finalHit) {
+    const { cellId, component } = finalHit.object.userData;
+    const cell = cells.find(c => c.id === cellId);
+    if(cell) {
+      selectedCellId = cell.id;
+      document.getElementById('cell-panel').style.display = 'block';
+      if(focusMode) zoomToCell(cell);
+      // Open modal for any organelle click (including if we found one behind membrane)
+      const modalComp = chosenHit ? chosenHit.object.userData.component : null;
+      if(modalComp) showComponentModal(cell, modalComp);
+    }
+  } else {
+    selectedCellId = null;
+    document.getElementById('cell-panel').style.display = 'none';
+    document.getElementById('comp-modal').style.display = 'none';
+    document.getElementById('comp-modal-overlay').style.display = 'none';
+    window._openModalComponent = null;
+  }
+});
+
+// ========== CELL SIMULATION ==========
+const PHASE_DURATIONS = {
+  G1: 11*3600*1000, S: 8*3600*1000, G2: 4*3600*1000,
+  prophase: 900000, metaphase: 600000, anaphase: 300000,
+  telophase: 600000, cytokinesis: 1200000
+};
+
+const PHASE_COLORS = {
+  G1:'#4ade80', S:'#60a5fa', G2:'#a78bfa',
+  prophase:'#f59e0b', metaphase:'#f97316', anaphase:'#ef4444',
+  telophase:'#ec4899', cytokinesis:'#8b5cf6',
+  arrested:'#6b7280', apoptosis:'#374151'
+};
+
+let cellIdCounter = 0;
+let totalDivisions = 0;
+let maxGeneration = 1;
+let bioTime = 0;
+let speedMultiplier = 1;
+let paused = false;
+const cells = [];
+const MAX_CELLS = 32;
+
+function getPhaseColor(phase) {
+  return new THREE.Color(PHASE_COLORS[phase] || '#4ade80');
+}
+
+function createOrganelleMesh(type, cellRadius) {
+  let mesh;
+  if(type==='mitochondrion') {
+    const g = new THREE.CylinderGeometry(0.12, 0.12, 0.5+Math.random()*0.3, 6);
+    const m = new THREE.MeshPhongMaterial({ color:0xff4500, emissive:0x8b1a00, emissiveIntensity:0.4, transparent:true, opacity:0.85 });
+    mesh = new THREE.Mesh(g, m);
+    const angle = Math.random()*Math.PI*2;
+    const dist = cellRadius*0.3+Math.random()*cellRadius*0.25;
+    mesh.position.set(Math.cos(angle)*dist, (Math.random()-0.5)*dist*0.8, Math.sin(angle)*dist);
+    mesh.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+  } else if(type==='nucleus') {
+    const r = cellRadius*0.38;
+    const g = new THREE.SphereGeometry(r, 16, 12);
+    const m = new THREE.MeshPhongMaterial({ color:0x1e40af, emissive:0x0c1a5a, emissiveIntensity:0.3, transparent:true, opacity:0.55, depthWrite:false });
+    mesh = new THREE.Mesh(g, m);
+  } else if(type==='nucleolus') {
+    const g = new THREE.SphereGeometry(cellRadius*0.1, 8, 8);
+    const m = new THREE.MeshPhongMaterial({ color:0x67e8f9, emissive:0x164e63, emissiveIntensity:0.5 });
+    mesh = new THREE.Mesh(g, m);
+    mesh.position.set(0, cellRadius*0.06, 0);
+  } else if(type==='golgi') {
+    const g = new THREE.TorusGeometry(cellRadius*0.15, cellRadius*0.04, 6, 12);
+    const m = new THREE.MeshPhongMaterial({ color:0x86efac, emissive:0x052e16, emissiveIntensity:0.3, transparent:true, opacity:0.7 });
+    mesh = new THREE.Mesh(g, m);
+    mesh.position.set(cellRadius*0.22, cellRadius*0.1, 0);
+    mesh.rotation.x = Math.PI/3;
+  }
+  return mesh;
+}
+
+function createCentrosome(cellRadius) {
+  const g = new THREE.SphereGeometry(cellRadius*0.06, 8, 8);
+  const m = new THREE.MeshPhongMaterial({ color:0xffffff, emissive:0x888888, emissiveIntensity:0.7 });
+  return new THREE.Mesh(g, m);
+}
+
+function createCell(position, generation) {
+  const id = ++cellIdCounter;
+  const radius = 2.0 + Math.random()*0.3;
+  const group = new THREE.Group();
+  group.position.copy(position);
+  scene.add(group);
+
+  // Membrane
+  const memGeo = new THREE.SphereGeometry(radius, 32, 24);
+  const memMat = new THREE.MeshPhongMaterial({
+    color:0x4ade80, emissive:0x052e16, emissiveIntensity:0.15,
+    transparent:true, opacity:0.22, side:THREE.DoubleSide, wireframe:false
+  });
+  const membrane = new THREE.Mesh(memGeo, memMat);
+  // Membrane still participates in raycast for cell selection but at lowest priority
+  group.add(membrane);
+
+  // Inner glow sphere
+  const glowGeo = new THREE.SphereGeometry(radius*0.95, 16, 12);
+  const glowMat = new THREE.MeshPhongMaterial({ color:0x052e16, emissive:0x0a3d1f, emissiveIntensity:0.4, transparent:true, opacity:0.12 });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  group.add(glow);
+
+  // Nucleus
+  const nucleus = createOrganelleMesh('nucleus', radius);
+  group.add(nucleus);
+  const nucleolus = createOrganelleMesh('nucleolus', radius);
+  // Add nucleolus directly to group (not as child of nucleus) so raycaster can find it
+  // Position it relative to world space: nucleus sits at origin of group
+  group.add(nucleolus);
+
+  // Mitochondria
+  const mitochondria = [];
+  for(let i=0;i<8;i++) {
+    const m = createOrganelleMesh('mitochondrion', radius);
+    group.add(m);
+    mitochondria.push(m);
+  }
+
+  // Endoplasmic Reticulum
+  const erGroup = new THREE.Group();
+  for(let i=0;i<5;i++){
+    const erGeo = new THREE.TorusGeometry(radius*(0.18+i*0.06), radius*0.025, 5, 14);
+    const erMat = new THREE.MeshPhongMaterial({color:0xc084fc,emissive:0x4c1d95,emissiveIntensity:0.3,transparent:true,opacity:0.55});
+    const erMesh = new THREE.Mesh(erGeo, erMat);
+    erMesh.userData = { cellId: id, component: 'er' };
+    erMesh.rotation.x = Math.random()*0.5; erMesh.rotation.z = Math.random()*0.5;
+    erMesh.position.set((Math.random()-0.5)*radius*0.4,(Math.random()-0.5)*radius*0.3,(Math.random()-0.5)*radius*0.4);
+    erGroup.add(erMesh);
+  }
+  group.add(erGroup);
+
+  // Golgi
+  const golgi = createOrganelleMesh('golgi', radius);
+  group.add(golgi);
+
+  // Centrosomes
+  const cen1 = createCentrosome(radius);
+  const cen2 = createCentrosome(radius);
+  cen1.position.set(radius*0.1, radius*0.5, 0);
+  cen2.position.set(radius*0.1, radius*0.5, 0);
+  cen2.visible = false;
+  group.add(cen1); group.add(cen2);
+
+  // Spindle fibers container
+  const spindleGroup = new THREE.Group();
+  group.add(spindleGroup);
+
+  // Chromosome group
+  const chromoGroup = new THREE.Group();
+  group.add(chromoGroup);
+
+  // Actin ring
+  const actinGeo = new THREE.TorusGeometry(radius*0.6, radius*0.04, 8, 32);
+  const actinMat = new THREE.MeshPhongMaterial({ color:0xec4899, emissive:0x831843, emissiveIntensity:0.4, transparent:true, opacity:0 });
+  const actinRing = new THREE.Mesh(actinGeo, actinMat);
+  actinRing.rotation.x = Math.PI/2;
+  group.add(actinRing);
+
+  // Point light inside cell
+  const innerLight = new THREE.PointLight(0x4ade80, 0.3, radius*4);
+  group.add(innerLight);
+
+  // Selection ring
+  const selGeo = new THREE.TorusGeometry(radius*1.15, 0.05, 8, 48);
+  const selMat = new THREE.MeshBasicMaterial({ color:0xfbbf24, transparent:true, opacity:0 });
+  const selRing = new THREE.Mesh(selGeo, selMat);
+  selRing.rotation.x = Math.PI/2;
+  group.add(selRing);
+
+  const cell = {
+    id, group, membrane, glowMat, memMat, nucleus, nucleolus, mitochondria,
+    golgi, erGroup, cen1, cen2, spindleGroup, chromoGroup, actinRing, actinMat, innerLight, selRing, selMat,
+    radius, generation,
+    phase: 'G1',
+    phaseProgress: 0,
+    age: 0,
+    dnaReplication: 0,
+    arrested: false,
+    apoptotic: false,
+    apoptosisProgress: 0,
+    velocity: new THREE.Vector3((Math.random()-0.5)*0.02,(Math.random()-0.5)*0.02,(Math.random()-0.5)*0.02),
+    dividing: false,
+    divisionProgress: 0,
+    proteins: { cyclinD:50, cyclinE:10, cyclinA:5, cyclinB:5, CDK4:40, CDK2:30, CDK1:20, p21:10, p53:80, Rb:80 },
+    _chromoBuilt: false, _spindleBuilt: false,
+    checkpoints: { G1S:false, G2M:false }
+  };
+
+  // Tag every organelle mesh so raycaster can identify it
+  membrane.userData = { cellId: id, component: 'membrane' };
+  nucleus.userData = { cellId: id, component: 'nucleus' };
+  nucleolus.userData = { cellId: id, component: 'nucleolus' };
+  golgi.userData = { cellId: id, component: 'golgi' };
+  cen1.userData = { cellId: id, component: 'centrosome' };
+  cen2.userData = { cellId: id, component: 'centrosome' };
+  actinRing.userData = { cellId: id, component: 'actinring' };
+  mitochondria.forEach(m => { m.userData = { cellId: id, component: 'mitochondrion' }; });
+
+  cells.push(cell);
+  return cell;
+}
+
+function buildChromosomes(cell, condensed) {
+  // Clear old
+  while(cell.chromoGroup.children.length > 0) cell.chromoGroup.remove(cell.chromoGroup.children[0]);
+  if(!condensed) return;
+  const n = 6;
+  for(let i=0;i<n;i++) {
+    const angle = (i/n)*Math.PI*2;
+    const r = cell.radius*0.28;
+    const g = new THREE.CapsuleGeometry ? new THREE.SphereGeometry(0.08,6,6) : new THREE.SphereGeometry(0.08,6,6);
+    const cg = new THREE.CylinderGeometry(0.07, 0.07, 0.45, 6);
+    const mat = new THREE.MeshPhongMaterial({ color:0xf59e0b, emissive:0x78350f, emissiveIntensity:0.5 });
+    const cm = new THREE.Mesh(cg, mat);
+    cm.userData = { cellId: cell.id, component: 'chromosome' };
+    cm.position.set(Math.cos(angle)*r, 0, Math.sin(angle)*r);
+    cm.rotation.z = angle + Math.PI/2;
+    cell.chromoGroup.add(cm);
+  }
+}
+
+function buildSpindle(cell) {
+  while(cell.spindleGroup.children.length>0) cell.spindleGroup.remove(cell.spindleGroup.children[0]);
+  const n = 12, len = cell.radius*0.8;
+  for(let i=0;i<n;i++) {
+    const angle = (i/n)*Math.PI*2;
+    const r2 = cell.radius*0.25;
+    const geo = new THREE.CylinderGeometry(0.02,0.02,len*2,4);
+    const mat = new THREE.MeshPhongMaterial({ color:0xffffff, transparent:true, opacity:0.3 });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(Math.cos(angle)*r2*0.5, 0, Math.sin(angle)*r2*0.5);
+    cell.spindleGroup.add(m);
+  }
+}
+
+// ========== MOLECULAR ENGINE ==========
+function computeEnvFactor() {
+  const o2f = ENV.O2/100;
+  const atpf = ENV.ATP/100;
+  const glucf = ENV.Glucose/100;
+  const aaf = ENV.AminoAcids/100;
+  const egff = ENV.EGF/100;
+  const rosf = 1 - ENV.ROS/100;
+  const tempf = 1 - Math.abs(ENV.Temperature-37)/10;
+  const phf = 1 - Math.abs(ENV.pH-7.4)/1.5;
+  return Math.max(0, Math.min(1.5, o2f*0.3 + atpf*0.2 + glucf*0.15 + aaf*0.1 + egff*0.1 + rosf*0.05 + Math.max(0,tempf)*0.05 + Math.max(0,phf)*0.05));
+}
+
+function updateProteins(cell, dt, envFactor) {
+  const p = cell.proteins;
+  const phase = cell.phase;
+  const speed = 0.00003 * dt;
+
+  const egfBoost = ENV.EGF/100;
+  const p53level = (ENV.p53/100)*0.5 + p.p53*0.005*0.5;
+  const caOk = ENV.Ca2 > 40;
+  const rosStress = ENV.ROS > 50;
+
+  if(phase==='G1') {
+    p.cyclinD = Math.min(100, p.cyclinD + speed*80*egfBoost*envFactor);
+    p.CDK4 = Math.min(100, p.CDK4 + speed*40*envFactor);
+    p.Rb = Math.max(0, p.Rb - speed*30*(p.cyclinD/100)*envFactor);
+    p.p21 = Math.max(0, p.p21 - speed*20*envFactor);
+    p.p53 = 40 + p53level*60;
+  } else if(phase==='S') {
+    p.cyclinE = Math.min(100, p.cyclinE + speed*60*envFactor);
+    p.cyclinA = Math.min(100, p.cyclinA + speed*40*envFactor);
+    p.CDK2 = Math.min(100, p.CDK2 + speed*50*envFactor);
+    p.cyclinD = Math.max(20, p.cyclinD - speed*20);
+  } else if(phase==='G2') {
+    p.cyclinB = Math.min(100, p.cyclinB + speed*70*envFactor);
+    p.CDK1 = Math.min(100, p.CDK1 + speed*60*envFactor);
+    p.cyclinA = Math.max(0, p.cyclinA - speed*20);
+  } else if(phase==='prophase'||phase==='metaphase'||phase==='anaphase') {
+    p.cyclinB = Math.min(100, p.cyclinB + speed*20*envFactor);
+    p.CDK1 = Math.min(100, p.CDK1 + speed*10*envFactor);
+  } else if(phase==='telophase'||phase==='cytokinesis') {
+    p.cyclinB = Math.max(0, p.cyclinB - speed*200);
+    p.CDK1 = Math.max(0, p.CDK1 - speed*150);
+  }
+
+  if(rosStress) { p.p21 = Math.min(100, p.p21 + speed*80); p.p53 = Math.min(100, p.p53 + speed*60); }
+
+  cell.checkpoints.G1S = p.cyclinD>60 && p.CDK4>50 && p.Rb<40 && p.p21<30 && ENV.EGF>30 && envFactor>0.4;
+  cell.checkpoints.G2M = p.cyclinB>60 && p.CDK1>60 && caOk && envFactor>0.5 && ENV.p53>20;
+}
+
+function getPhaseDuration(phase) {
+  const base = PHASE_DURATIONS[phase] || 3600000;
+  const env = computeEnvFactor();
+  return base / Math.max(0.1, env);
+}
+
+function shouldArrest(cell) {
+  const env = computeEnvFactor();
+  if(env < 0.15) return true;
+  if(ENV.O2 < 10) return true;
+  if(ENV.ATP < 15) return true;
+  if(ENV.ROS > 85) return true;
+  return false;
+}
+
+function shouldApoptose(cell) {
+  if(ENV.O2 < 5) return true;
+  if(ENV.ROS > 92) return true;
+  if(ENV.Temperature > 43) return true;
+  return false;
+}
+
+function advancePhase(cell) {
+  const phases = ['G1','S','G2','prophase','metaphase','anaphase','telophase','cytokinesis'];
+  const idx = phases.indexOf(cell.phase);
+  if(idx === -1 || idx === phases.length-1) {
+    // divide!
+    divideCell(cell);
+    return;
+  }
+  // checkpoint gates
+  if(cell.phase==='G1' && !cell.checkpoints.G1S && ENV.p53 > 30) {
+    cell.arrested = true; return;
+  }
+  if(cell.phase==='G2' && !cell.checkpoints.G2M) {
+    cell.arrested = true; return;
+  }
+  cell.phase = phases[idx+1];
+  cell.age = 0;
+  cell.phaseProgress = 0;
+  cell._chromoBuilt = false;
+  cell._spindleBuilt = false;
+}
+
+function divideCell(cell) {
+  if(cells.length >= MAX_CELLS) { cell.phase='G1'; cell.age=0; return; }
+  cell.dividing = true;
+  cell.divisionProgress = 0;
+}
+
+function finishDivision(cell) {
+  totalDivisions++;
+  const newGen = cell.generation + 1;
+  if(newGen > maxGeneration) maxGeneration = newGen;
+
+  const offset = new THREE.Vector3((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2).normalize().multiplyScalar(cell.radius*1.5);
+  const pos1 = cell.group.position.clone().add(offset);
+  const pos2 = cell.group.position.clone().sub(offset);
+
+  // Remove old cell
+  scene.remove(cell.group);
+  cells.splice(cells.indexOf(cell), 1);
+
+  // Flash
+  const flash = document.getElementById('dividing-flash');
+  flash.style.opacity = '1';
+  setTimeout(()=>flash.style.opacity='0', 300);
+
+  if(cells.length < MAX_CELLS) createCell(pos1, newGen);
+  if(cells.length < MAX_CELLS) createCell(pos2, newGen);
+}
+
+// ========== CELL VISUAL UPDATE ==========
+function updateCellVisual(cell, t) {
+  if(cell.apoptotic) {
+    cell.apoptosisProgress += 0.002;
+    const s = 1 - cell.apoptosisProgress;
+    cell.group.scale.setScalar(Math.max(0.01, s));
+    if(cell.apoptosisProgress > 1) {
+      scene.remove(cell.group);
+      cells.splice(cells.indexOf(cell), 1);
+    }
+    return;
+  }
+
+  const phase = cell.arrested ? 'arrested' : cell.phase;
+  const col = getPhaseColor(phase);
+
+  cell.memMat.color.lerp(col, 0.05);
+  cell.memMat.emissive.lerp(col, 0.03);
+  cell.innerLight.color.lerp(col, 0.05);
+
+  // Selection highlight
+  const isSelected = cell.id === selectedCellId;
+  cell.selMat.opacity += (isSelected ? 0.8 : 0) * 0.1 - cell.selMat.opacity * 0.1;
+
+  // Organelle visibility
+  const showDetail = cell.radius > 0.5;
+  cell.nucleus.visible = showDetail && cell.phase !== 'prophase';
+  cell.nucleolus.visible = showDetail && (cell.phase==='G1'||cell.phase==='S'||cell.phase==='G2');
+  cell.golgi.visible = showDetail && (cell.phase==='G1'||cell.phase==='S'||cell.phase==='G2');
+  cell.erGroup.visible = showDetail && (cell.phase==='G1'||cell.phase==='S'||cell.phase==='G2');
+  cell.mitochondria.forEach(m=>{ m.visible=showDetail; });
+
+  // Mitochondria pulsing
+  const atpFactor = ENV.ATP/100;
+  cell.mitochondria.forEach((m,i)=>{
+    m.material.emissiveIntensity = 0.2 + Math.sin(t*0.003+i)*0.15*atpFactor;
+  });
+
+  // Nucleus color based on DNA replication
+  if(cell.phase==='S') {
+    cell.nucleus.material.emissive.lerp(new THREE.Color(0x1d4ed8), 0.05);
+    cell.nucleus.material.emissiveIntensity = 0.3 + cell.dnaReplication*0.4;
+  }
+
+  // Centrosomes
+  if(cell.phase==='G2'||cell.phase==='prophase'||cell.phase==='metaphase'||cell.phase==='anaphase') {
+    cell.cen2.visible = true;
+    const sep = cell.radius * 0.6 * cell.phaseProgress;
+    cell.cen1.position.set(0, sep, 0);
+    cell.cen2.position.set(0, -sep, 0);
+  } else {
+    cell.cen2.visible = false;
+    cell.cen1.position.set(0, cell.radius*0.5, 0);
+  }
+
+  // Chromosomes — only rebuild when phase transitions (dirty flag)
+  const inMitosis = cell.phase==='prophase'||cell.phase==='metaphase'||cell.phase==='anaphase'||cell.phase==='telophase';
+  if(inMitosis) {
+    if(!cell._chromoBuilt) { buildChromosomes(cell, true); cell._chromoBuilt = true; }
+    if(cell.phase==='anaphase') {
+      const pull = cell.phaseProgress * cell.radius * 0.45;
+      cell.chromoGroup.children.forEach((c,i)=>{ c.position.y = (i%2===0 ? pull : -pull); });
+    } else if(cell.phase==='telophase') {
+      const pull = cell.radius * 0.45;
+      cell.chromoGroup.children.forEach((c,i)=>{ c.position.y = (i%2===0 ? pull : -pull); });
+    } else {
+      cell.chromoGroup.children.forEach(c=>{ c.position.y = 0; });
+    }
+  } else {
+    if(cell._chromoBuilt) {
+      while(cell.chromoGroup.children.length>0) cell.chromoGroup.remove(cell.chromoGroup.children[0]);
+      cell._chromoBuilt = false;
+    }
+  }
+
+  // Spindle — only rebuild on transition
+  const needsSpindle = cell.phase==='metaphase'||cell.phase==='anaphase';
+  if(needsSpindle && !cell._spindleBuilt) { buildSpindle(cell); cell._spindleBuilt=true; }
+  else if(!needsSpindle && cell._spindleBuilt) {
+    while(cell.spindleGroup.children.length>0) cell.spindleGroup.remove(cell.spindleGroup.children[0]);
+    cell._spindleBuilt=false;
+  }
+
+  // Actin ring + division morph
+  if(cell.dividing) {
+    cell.divisionProgress += 0.008;
+    cell.actinMat.opacity = Math.min(0.8, cell.divisionProgress*2);
+    const squeeze = 1 - cell.divisionProgress*0.4;
+    const stretch = 1 + cell.divisionProgress*0.6;
+    cell.group.scale.set(squeeze, stretch, squeeze);
+    if(cell.divisionProgress >= 1) { finishDivision(cell); }
+    return;
+  } else {
+    cell.actinMat.opacity = 0;
+    cell.group.scale.set(1,1,1);
+  }
+
+  // Cell size grows during interphase
+  const growthPhases = ['G1','S','G2'];
+  if(growthPhases.includes(cell.phase)) {
+    const growFactor = 1 + cell.phaseProgress * 0.15;
+    cell.group.scale.setScalar(growFactor);
+  }
+
+  // Gentle rotation
+  cell.group.rotation.y += 0.0005;
+}
+
+function updateCellPosition(cell) {
+  // Gentle drift
+  cell.group.position.add(cell.velocity);
+  // Boundary
+  const pos = cell.group.position;
+  const bound = 25;
+  if(Math.abs(pos.x)>bound) cell.velocity.x*=-1;
+  if(Math.abs(pos.y)>bound) cell.velocity.y*=-1;
+  if(Math.abs(pos.z)>bound) cell.velocity.z*=-1;
+  // Separation between cells
+  cells.forEach(other=>{
+    if(other.id===cell.id) return;
+    const diff = cell.group.position.clone().sub(other.group.position);
+    const dist = diff.length();
+    const minDist = (cell.radius + other.radius) * 2.2;
+    if(dist < minDist && dist > 0.01) {
+      const push = diff.normalize().multiplyScalar((minDist-dist)*0.005);
+      cell.velocity.add(push);
+    }
+  });
+  cell.velocity.clampLength(0, 0.05);
+}
+
+// ========== MAIN UPDATE ==========
+let lastTime = performance.now();
+
+function update(now) {
+  const realDt = Math.min(now - lastTime, 100);
+  lastTime = now;
+  if(paused) return;
+  const dt = realDt * speedMultiplier;
+  bioTime += dt;
+
+  const envFactor = computeEnvFactor();
+
+  for(let i=cells.length-1;i>=0;i--) {
+    const cell = cells[i];
+    if(!cell) continue;
+
+    if(cell.apoptotic || cell.dividing) continue;
+
+    updateProteins(cell, dt, envFactor);
+
+    if(shouldApoptose(cell)) { cell.apoptotic=true; continue; }
+    if(shouldArrest(cell)) { cell.arrested=true; continue; }
+    if(cell.arrested && !shouldArrest(cell)) { cell.arrested=false; }
+
+    if(!cell.arrested) {
+      cell.age += dt;
+      const dur = getPhaseDuration(cell.phase);
+      cell.phaseProgress = Math.min(1, cell.age/dur);
+      if(cell.phase==='S') cell.dnaReplication = cell.phaseProgress;
+      if(cell.age >= dur) advancePhase(cell);
+    }
+  }
+}
+
+function render(t) {
+  cells.forEach(c=>{ updateCellVisual(c,t); updateCellPosition(c); });
+  updateHUD();
+  updateCellPanel();
+  updateCamera();
+  // Refresh modal stats live if open
+  if(document.getElementById('comp-modal').style.display==='block' && selectedCellId && window._openModalComponent) {
+    const cell = cells.find(c=>c.id===selectedCellId);
+    if(cell) refreshModalStats(cell, window._openModalComponent);
+  }
+  renderer.render(scene, camera);
+  updateCellLabels();
+}
+
+function updateCellLabels() {
+  const container = document.getElementById('cell-labels');
+  if(!container) return;
+  // Remove old labels
+  container.innerHTML = '';
+  const W = window.innerWidth, H = window.innerHeight;
+  cells.forEach(cell => {
+    // Project cell position to screen
+    const pos = cell.group.position.clone();
+    pos.y += cell.radius * 1.4;
+    pos.project(camera);
+    const sx = (pos.x * 0.5 + 0.5) * W;
+    const sy = (-pos.y * 0.5 + 0.5) * H;
+    // Only show if in front of camera and on screen
+    if(pos.z > 1 || sx < 0 || sx > W || sy < 0 || sy > H) return;
+    const phase = cell.arrested ? 'ARR' : cell.phase.slice(0,3).toUpperCase();
+    const div = document.createElement('div');
+    div.className = 'cell-label' + (cell.id===selectedCellId?' selected':'');
+    div.style.left = sx+'px';
+    div.style.top = sy+'px';
+    div.textContent = `#${cell.id} ${phase} G${cell.generation}`;
+    container.appendChild(div);
+  });
+}
+
+function loop(t) {
+  requestAnimationFrame(loop);
+  update(t);
+  render(t);
+}
+
+// ========== HUD ==========
+function formatBioTime(ms) {
+  const h = Math.floor(ms/3600000)%24;
+  const d = Math.floor(ms/86400000);
+  const m = Math.floor(ms/60000)%60;
+  const s = Math.floor(ms/1000)%60;
+  return `${d>0?d+'d ':''} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function updateHUD() {
+  document.getElementById('bio-time').textContent = formatBioTime(bioTime);
+  document.getElementById('cell-count').textContent = cells.length;
+  document.getElementById('generation').textContent = maxGeneration;
+  document.getElementById('divisions').textContent = totalDivisions;
+}
+
+function updateCellPanel() {
+  if(!selectedCellId) return;
+  const cell = cells.find(c=>c.id===selectedCellId);
+  if(!cell) { document.getElementById('cell-panel').style.display='none'; selectedCellId=null; return; }
+
+  const phase = cell.arrested?'arrested':cell.phase;
+  const badge = document.getElementById('cell-phase-badge');
+  badge.textContent = phase.toUpperCase();
+  badge.style.background = (PHASE_COLORS[phase]||'#6b7280')+'33';
+  badge.style.color = PHASE_COLORS[phase]||'#6b7280';
+  badge.style.border = '1px solid '+(PHASE_COLORS[phase]||'#6b7280')+'55';
+
+  document.getElementById('cell-progress-label').textContent =
+    `Progress: ${Math.round(cell.phaseProgress*100)}% | Gen ${cell.generation}`;
+
+  const PROTEIN_COLORS = {
+    cyclinD:'#4ade80',cyclinE:'#60a5fa',cyclinA:'#a78bfa',cyclinB:'#f59e0b',
+    CDK4:'#34d399',CDK2:'#818cf8',CDK1:'#fb923c',p21:'#f87171',p53:'#c084fc',Rb:'#67e8f9'
+  };
+  const bars = document.getElementById('protein-bars');
+  bars.innerHTML = Object.entries(cell.proteins).map(([name,val])=>`
+    <div class="protein-row">
+      <div class="protein-name">${name}</div>
+      <div class="protein-bar-bg"><div class="protein-bar" style="width:${Math.min(100,val)}%;background:${PROTEIN_COLORS[name]||'#4ade80'}"></div></div>
+      <div class="protein-val">${Math.round(val)}</div>
+    </div>`).join('');
+
+  document.getElementById('ck-g1s').textContent = cell.checkpoints.G1S ? '✓ PASS' : '✗ FAIL';
+  document.getElementById('ck-g1s').style.color = cell.checkpoints.G1S ? '#4ade80' : '#ef4444';
+  document.getElementById('ck-g2m').textContent = cell.checkpoints.G2M ? '✓ PASS' : '✗ FAIL';
+  document.getElementById('ck-g2m').style.color = cell.checkpoints.G2M ? '#4ade80' : '#ef4444';
+  updateOrganelleChips(cell);
+}
+
+// ========== COMPONENT MODAL ==========
+const ORGANELLE_DATA = {
+  er: {
+    icon: '🟣', name: 'Endoplasmic Reticulum', latin: 'Reticulum endoplasmicum',
+    color: '#c084fc',
+    desc: 'A vast interconnected network of membrane-enclosed tubules and sacs that extends throughout the cytoplasm. The rough ER (studded with ribosomes) synthesizes secretory and membrane proteins; the smooth ER synthesizes lipids and detoxifies chemicals.',
+    molFunction: 'Rough ER: ribosomes translate mRNA → polypeptides thread into the ER lumen → signal peptide cleavage, N-linked glycosylation, disulfide bond formation, and chaperone-assisted folding (BiP/GRP78). Smooth ER: fatty acid and phospholipid synthesis, steroid hormone production, Ca²⁺ storage and release (IP₃ signaling), and cytochrome P450-mediated drug metabolism.',
+    getStats: (cell) => [
+      { label: 'Protein folding load', val: Math.round(ENV.AminoAcids*0.85), unit: '%', color: '#c084fc' },
+      { label: 'Ca²⁺ store', val: Math.round(ENV.Ca2*0.9), unit: '%', color: '#d8b4fe' },
+      { label: 'UPR active', val: ENV.AminoAcids < 40 || ENV.O2 < 40 ? 'Yes — stress' : 'No', unit: '', color: '#e9d5ff', isText: true },
+    ],
+    disease: 'ER stress activates the Unfolded Protein Response (UPR). Chronic UPR drives apoptosis in neurodegeneration (ALS, Parkinson\'s) and contributes to beta-cell death in Type 2 diabetes.',
+  },
+  membrane: {
+    icon: '🔵', name: 'Cell Membrane', latin: 'Membrana cellularis',
+    color: '#4ade80',
+    desc: 'The plasma membrane is a phospholipid bilayer 7–10 nm thick. It is selectively permeable, controlling which molecules enter and exit the cell via passive diffusion, facilitated transport, and active pumping.',
+    molFunction: 'Phospholipid bilayer hosts transmembrane proteins (channels, receptors, pumps). Fluid mosaic model — lipids and proteins drift laterally. Cholesterol regulates fluidity. Glycoproteins form the glycocalyx for cell recognition.',
+    getStats: (cell) => [
+      { label: 'Permeability', val: Math.round(60 + cell.phaseProgress*20), unit: '%', color: '#4ade80' },
+      { label: 'Fluidity index', val: Math.round(70 + (37 - ENV.Temperature)*2), unit: '', color: '#86efac' },
+      { label: 'Integrity', val: cell.arrested ? 60 : 95, unit: '%', color: '#a7f3c8' },
+    ],
+    disease: 'Disruption by toxins, ROS, or temperature extremes causes membrane leakage, loss of ion gradients, and cell death. Many cancer drugs target membrane lipid rafts.',
+  },
+  nucleus: {
+    icon: '🫧', name: 'Nucleus', latin: 'Nucleus cellulae',
+    color: '#60a5fa',
+    desc: 'The control center of the cell. Contains the full genome (~3 billion base pairs in humans) wrapped around histone proteins forming chromatin. Bounded by a double membrane nuclear envelope with ~3000–4000 nuclear pore complexes.',
+    molFunction: 'Transcription of DNA → pre-mRNA by RNA Pol II. Splicing of introns. Export of mature mRNA through nuclear pores via exportin. During S phase, DNA polymerase replicates the genome bidirectionally from origins of replication.',
+    getStats: (cell) => [
+      { label: 'DNA replication', val: Math.round(cell.dnaReplication*100), unit: '%', color: '#60a5fa' },
+      { label: 'Chromatin state', val: cell.phase==='prophase'||cell.phase==='metaphase' ? 'Condensed' : 'Open', unit: '', color: '#93c5fd', isText: true },
+      { label: 'Transcription', val: cell.phase==='S'||cell.phase==='G1' ? 'Active' : 'Reduced', unit: '', color: '#bfdbfe', isText: true },
+    ],
+    disease: 'Nuclear envelope breakdown is normal in mitosis. Pathological breakdown (laminopathies, progeria) causes premature aging. Enlarged nuclei are a hallmark of cancer cells.',
+  },
+  nucleolus: {
+    icon: '⚪', name: 'Nucleolus', latin: 'Nucleolus',
+    color: '#67e8f9',
+    desc: 'A membraneless organelle inside the nucleus — a phase-separated condensate. It is the site of ribosomal RNA (rRNA) transcription and pre-ribosome assembly. Cells with high protein synthesis demands have large, multiple nucleoli.',
+    molFunction: 'RNA Pol I transcribes rRNA genes (45S pre-rRNA → 28S, 18S, 5.8S). Ribosomal proteins imported from cytoplasm combine with rRNA. Pre-ribosomal subunits exported through nuclear pores. Disappears during prophase.',
+    getStats: (cell) => [
+      { label: 'rRNA synthesis', val: cell.phase==='prophase'||cell.phase==='metaphase'||cell.phase==='anaphase' ? 0 : Math.round(50 + ENV.AminoAcids/2), unit: '%', color: '#67e8f9' },
+      { label: 'Ribosome output', val: Math.round(ENV.AminoAcids*0.8), unit: '/min (rel)', color: '#a5f3fc' },
+      { label: 'Visible', val: cell.phase==='G1'||cell.phase==='S'||cell.phase==='G2' ? 'Yes' : 'No', unit: '', color: '#cffafe', isText: true },
+    ],
+    disease: 'Enlarged nucleoli are a diagnostic marker for aggressive cancers. Ribosome biogenesis stress activates p53 via the RPL5/RPL11 checkpoint.',
+  },
+  mitochondrion: {
+    icon: '🟠', name: 'Mitochondrion', latin: 'Mitochondria',
+    color: '#fb923c',
+    desc: 'The powerhouse of the cell. Double-membrane organelle with a highly folded inner membrane (cristae) that dramatically increases surface area for ATP synthesis. Mitochondria have their own circular DNA and replicate independently.',
+    molFunction: 'Pyruvate → Acetyl-CoA (pyruvate dehydrogenase). Krebs cycle generates NADH/FADH₂. Electron transport chain (Complex I–IV) pumps H⁺ across inner membrane. ATP synthase (Complex V) uses the proton gradient to synthesize ATP. ~30–32 ATP per glucose.',
+    getStats: (cell) => [
+      { label: 'ATP output', val: Math.round(ENV.O2 * ENV.Glucose / 100 * 0.95), unit: '%', color: '#fb923c' },
+      { label: 'Membrane potential', val: Math.round(140 * ENV.O2/100), unit: ' mV', color: '#fdba74' },
+      { label: 'ROS production', val: Math.round(ENV.ROS * 0.6 + 5), unit: '%', color: '#fcd34d' },
+    ],
+    disease: 'Mitochondrial dysfunction is linked to Parkinson\'s disease, diabetes, and aging. Low O₂ (hypoxia) forces the cell to rely on glycolysis (Warburg effect in cancer).',
+  },
+  golgi: {
+    icon: '🟢', name: 'Golgi Apparatus', latin: 'Apparatus golgiensis',
+    color: '#86efac',
+    desc: 'The cell\'s post office and processing plant. A stack of flattened membrane cisternae (cis, medial, trans) that modifies, sorts, and packages proteins and lipids for secretion or delivery to lysosomes and other organelles.',
+    molFunction: 'Glycosylation of proteins (N-linked and O-linked sugar chains). Proteolytic cleavage of proproteins. Lipid modification. Vesicle budding (COPI, COPII, clathrin). Proteins enter from cis face (from ER) and exit from trans face in transport vesicles.',
+    getStats: (cell) => [
+      { label: 'Vesicle flux', val: Math.round(ENV.Glucose*0.7 + ENV.AminoAcids*0.3), unit: '%', color: '#86efac' },
+      { label: 'Glycosylation rate', val: Math.round(ENV.AminoAcids*0.9), unit: '%', color: '#bbf7d0' },
+      { label: 'Stack integrity', val: cell.phase==='mitosis' ? 'Fragmented' : 'Intact', unit: '', color: '#d1fae5', isText: true },
+    ],
+    disease: 'Golgi fragmentation occurs during apoptosis and is an early marker of neurodegeneration. COG complex mutations cause congenital disorders of glycosylation.',
+  },
+  centrosome: {
+    icon: '⭐', name: 'Centrosome', latin: 'Centrosoma',
+    color: '#fbbf24',
+    desc: 'The main microtubule-organizing center (MTOC) of animal cells. Contains two centrioles (9+0 triplet microtubule arrangement) surrounded by pericentriolar material (PCM). Duplicates once per cell cycle during S phase.',
+    molFunction: 'Nucleates and anchors microtubules via γ-tubulin ring complexes (γ-TuRC). In mitosis, separates to opposite poles to form the bipolar spindle. PLK1, Aurora A, and CDK2/Cyclin A regulate centrosome maturation and separation.',
+    getStats: (cell) => [
+      { label: 'Count', val: (cell.phase==='G2'||cell.phase==='prophase'||cell.phase==='metaphase'||cell.phase==='anaphase') ? 2 : 1, unit: ' centriole pairs', color: '#fbbf24', isText: true },
+      { label: 'Spindle assembly', val: cell.phase==='metaphase'||cell.phase==='anaphase' ? 'Active' : 'Standby', unit: '', color: '#fde68a', isText: true },
+      { label: 'PLK1 activity', val: cell.phase==='G2'||cell.phase==='prophase' ? 'High' : 'Low', unit: '', color: '#fef3c7', isText: true },
+    ],
+    disease: 'Centrosome amplification (>2 centrosomes) causes multipolar spindles and chromosomal instability — a hallmark of cancer. BRCA1/2 mutations disrupt centrosome number control.',
+  },
+  chromosome: {
+    icon: '🟡', name: 'Chromosomes', latin: 'Chromosoma',
+    color: '#f59e0b',
+    desc: 'Condensed chromatin structures visible only during mitosis. Each chromosome consists of a single DNA molecule tightly wound around histone octamers, then further coiled into loops and higher-order structures, compacting DNA ~10,000-fold.',
+    molFunction: 'Condensin I/II complexes drive chromosome compaction in prophase. Cohesin holds sister chromatids together until anaphase. Aurora B kinase corrects erroneous spindle-kinetochore attachments. Separase cleaves cohesin at anaphase onset to trigger chromatid separation.',
+    getStats: (cell) => [
+      { label: 'Condensation', val: cell.phase==='prophase'?40:cell.phase==='metaphase'?95:cell.phase==='anaphase'?90:cell.phase==='telophase'?50:5, unit: '%', color: '#f59e0b' },
+      { label: 'Cohesin intact', val: cell.phase==='anaphase'||cell.phase==='telophase' ? 'No — cleaved' : 'Yes', unit: '', color: '#fde68a', isText: true },
+      { label: 'Visible in phase', val: cell.phase==='prophase'||cell.phase==='metaphase'||cell.phase==='anaphase'||cell.phase==='telophase' ? 'Yes' : 'No', unit: '', color: '#fef3c7', isText: true },
+    ],
+    disease: 'Chromosome missegregation causes aneuploidy — the wrong number of chromosomes in daughter cells. Present in ~90% of solid tumors. Aurora B inhibitors are being explored as cancer therapeutics.',
+  },
+  actinring: {
+    icon: '💗', name: 'Actin Contractile Ring', latin: 'Anulus contractilis',
+    color: '#ec4899',
+    desc: 'A transient structure assembled only during cytokinesis. A belt of actin filaments and myosin II motors forms at the cell equator (cleavage furrow) and constricts like a purse string to physically pinch the cell in two.',
+    molFunction: 'RhoA GTPase activates ROCK kinase → phosphorylates myosin light chain → myosin II slides actin filaments → ring constricts. ECT2 recruits and activates RhoA at the midzone. Constriction takes 10–30 min, driven by ~10,000 myosin motors.',
+    getStats: (cell) => [
+      { label: 'Constriction', val: cell.dividing ? Math.round(cell.divisionProgress*100) : 0, unit: '%', color: '#ec4899' },
+      { label: 'RhoA activity', val: cell.dividing ? 95 : cell.phase==='cytokinesis' ? 80 : 10, unit: '%', color: '#f9a8d4' },
+      { label: 'Ca²⁺ dependency', val: Math.round(ENV.Ca2), unit: '%', color: '#fbcfe8' },
+    ],
+    disease: 'Cytokinesis failure (due to low Ca²⁺, taxol, or RhoA inhibition) produces binucleated cells — a common precursor to polyploidy and cancer.',
+  },
+};
+
+function showComponentModal(cell, component) {
+  const data = ORGANELLE_DATA[component];
+  if(!data) return;
+
+  document.getElementById('comp-modal-icon').textContent = data.icon;
+  document.getElementById('comp-modal-title').textContent = data.name.toUpperCase();
+  document.getElementById('comp-modal-latin').textContent = data.latin;
+  document.getElementById('comp-modal-desc').textContent = data.desc;
+  document.getElementById('comp-modal-mol').textContent = data.molFunction;
+
+  // Status badge
+  const phase = cell.arrested ? 'arrested' : cell.phase;
+  document.getElementById('comp-modal-status').innerHTML =
+    `<span style="background:${(PHASE_COLORS[phase]||'#6b7280')}22;color:${PHASE_COLORS[phase]||'#6b7280'};
+      border:1px solid ${(PHASE_COLORS[phase]||'#6b7280')}44;padding:3px 10px;border-radius:3px;
+      font-size:10px;letter-spacing:1px;">CELL ${phase.toUpperCase()}</span>
+    <span style="margin-left:8px;font-size:10px;color:#2d6a4f;">Gen ${cell.generation} · ID #${cell.id}</span>`;
+
+  // Live stats
+  const stats = data.getStats(cell);
+  document.getElementById('comp-modal-stats').innerHTML = stats.map(s => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <div style="font-size:10px;color:#2d6a4f;width:110px;flex-shrink:0;">${s.label}</div>
+      ${s.isText
+        ? `<div style="font-size:11px;color:${s.color};font-weight:600;">${s.val}</div>`
+        : `<div style="flex:1;height:5px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden;">
+            <div style="width:${Math.min(100,typeof s.val==='number'?s.val:0)}%;height:100%;background:${s.color};border-radius:3px;transition:width 0.4s;"></div>
+           </div>
+           <div style="font-size:10px;color:${s.color};min-width:40px;text-align:right;">${s.val}${s.unit}</div>`
+      }
+    </div>`).join('');
+
+  // Disease box
+  const diseaseEl = document.getElementById('comp-modal-disease');
+  if(data.disease) {
+    diseaseEl.style.display = 'block';
+    document.getElementById('comp-modal-disease-text').textContent = data.disease;
+  } else {
+    diseaseEl.style.display = 'none';
+  }
+
+  // Color accent on header
+  document.getElementById('comp-modal-header').style.borderBottom = `1px solid ${data.color}33`;
+
+  document.getElementById('comp-modal').style.display = 'block';
+  document.getElementById('comp-modal-overlay').style.display = 'block';
+  window._openModalComponent = component;
+}
+
+function refreshModalStats(cell, component) {
+  const data = ORGANELLE_DATA[component];
+  if(!data) return;
+  const stats = data.getStats(cell);
+  const el = document.getElementById('comp-modal-stats');
+  if(!el) return;
+  el.innerHTML = stats.map(s => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <div style="font-size:10px;color:#2d6a4f;width:110px;flex-shrink:0;">${s.label}</div>
+      ${s.isText
+        ? `<div style="font-size:11px;color:${s.color};font-weight:600;">${s.val}</div>`
+        : `<div style="flex:1;height:5px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden;">
+            <div style="width:${Math.min(100,typeof s.val==='number'?s.val:0)}%;height:100%;background:${s.color};border-radius:3px;"></div>
+           </div>
+           <div style="font-size:10px;color:${s.color};min-width:40px;text-align:right;">${s.val}${s.unit}</div>`
+      }
+    </div>`).join('');
+}
+
+function updateOrganelleChips(cell) {
+  const chips = document.getElementById('organelle-chips');
+  if(!chips) return;
+  const parts = [
+    { key:'membrane', label:'Membrane', color:'#4ade80' },
+    { key:'er', label:'ER', color:'#c084fc' },
+    { key:'nucleus', label:'Nucleus', color:'#60a5fa' },
+    { key:'nucleolus', label:'Nucleolus', color:'#67e8f9' },
+    { key:'mitochondrion', label:'Mitochondria', color:'#fb923c' },
+    { key:'golgi', label:'Golgi', color:'#86efac' },
+    { key:'centrosome', label:'Centrosome', color:'#fbbf24' },
+    { key:'actinring', label:'Actin Ring', color:'#ec4899' },
+    { key:'chromosome', label:'Chromosomes', color:'#f59e0b' },
+  ];
+  chips.innerHTML = parts.map(p => {
+    const active = p.key==='actinring' ? cell.dividing||cell.phase==='cytokinesis' : true;
+    return `<button onclick="showComponentModal(cells.find(c=>c.id===${cell.id}), '${p.key}')"
+      style="background:${p.color}18;border:1px solid ${p.color}${active?'44':'22'};
+        color:${active?p.color:'#2d6a4f'};padding:3px 8px;border-radius:3px;cursor:pointer;
+        font-size:9px;letter-spacing:1px;font-family:'Courier New',monospace;transition:all 0.2s;"
+      onmouseover="this.style.background='${p.color}30'" onmouseout="this.style.background='${p.color}18'">
+      ${p.label}
+    </button>`;
+  }).join('');
+}
+
+// ========== SPEED CONTROLS ==========
+document.querySelectorAll('.speed-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    speedMultiplier = parseInt(btn.dataset.speed);
+    document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+document.getElementById('pause-btn').addEventListener('click',()=>{
+  paused=!paused;
+  document.getElementById('pause-btn').textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
+});
+
+// ========== MOD PANEL ==========
+let modPanelOpen = false;
+function toggleModPanel() {
+  modPanelOpen = !modPanelOpen;
+  document.getElementById('mod-panel').classList.toggle('open', modPanelOpen);
+}
+
+function buildSliders() {
+  CHEM_DEFS.forEach(def => {
+    const container = document.getElementById('slider-'+def.key);
+    if(!container) return;
+    const pct = def.unit==='°C'||def.unit===''
+      ? ((ENV[def.key]-def.min)/(def.max-def.min)*100).toFixed(0)
+      : ENV[def.key];
+    container.innerHTML = `
+      <div class="chem-row">
+        <div class="chem-header">
+          <span><span class="chem-name">${def.name}</span> <span class="chem-formula">${def.formula}</span></span>
+          <span class="chem-val" id="val-${def.key}">${def.unit==='°C'?ENV[def.key].toFixed(1)+'°C':def.unit===''?ENV[def.key].toFixed(1):ENV[def.key]+'%'}</span>
+        </div>
+        <input type="range" class="chem-slider" min="${def.min}" max="${def.max}"
+          step="${def.unit==='°C'||def.unit===''?0.1:1}"
+          value="${ENV[def.key]}"
+          style="background:linear-gradient(to right,${def.color}66 0%,${def.color}66 ${pct}%,rgba(255,255,255,0.08) ${pct}%)"
+          oninput="updateChem('${def.key}',parseFloat(this.value),this,${def.min},${def.max},'${def.unit}','${def.color}')"
+          id="sldr-${def.key}">
+        <div class="chem-effect" id="eff-${def.key}">${def.effect(ENV[def.key])}</div>
+      </div>`;
+  });
+  // Thumbs color
+  const style = document.createElement('style');
+  CHEM_DEFS.forEach(def=>{
+    style.textContent += `#sldr-${def.key}::-webkit-slider-thumb{background:${def.color};}`;
+  });
+  document.head.appendChild(style);
+}
+
+function updateChem(key, val, slider, min, max, unit, color) {
+  ENV[key] = val;
+  const pct = ((val-min)/(max-min)*100);
+  slider.style.background = `linear-gradient(to right,${color}66 0%,${color}66 ${pct}%,rgba(255,255,255,0.08) ${pct}%)`;
+  const valEl = document.getElementById('val-'+key);
+  if(valEl) valEl.textContent = unit==='°C'?val.toFixed(1)+'°C':unit===''?val.toFixed(1):val+'%';
+  const def = CHEM_DEFS.find(d=>d.key===key);
+  const effEl = document.getElementById('eff-'+key);
+  if(effEl && def) effEl.textContent = def.effect(val);
+}
+
+function applyPreset(name) {
+  const preset = PRESETS[name];
+  if(!preset) return;
+  Object.entries(preset).forEach(([k,v])=>{
+    ENV[k] = v;
+    const slider = document.getElementById('sldr-'+k);
+    const def = CHEM_DEFS.find(d=>d.key===k);
+    if(slider && def) {
+      slider.value = v;
+      const pct = ((v-def.min)/(def.max-def.min)*100);
+      slider.style.background = `linear-gradient(to right,${def.color}66 0%,${def.color}66 ${pct}%,rgba(255,255,255,0.08) ${pct}%)`;
+      const valEl = document.getElementById('val-'+k);
+      if(valEl) valEl.textContent = def.unit==='°C'?v.toFixed(1)+'°C':def.unit===''?v.toFixed(1):v+'%';
+      const effEl = document.getElementById('eff-'+k);
+      if(effEl) effEl.textContent = def.effect(v);
+    }
+  });
+}
+
+window.addEventListener('resize',()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ========== ADD CELL ==========
+function addCellManual() {
+  if(cells.length >= MAX_CELLS) {
+    const btn = document.getElementById('add-cell-btn');
+    btn.textContent = 'MAX CELLS';
+    setTimeout(()=>btn.textContent='+ ADD CELL', 1500);
+    return;
+  }
+  const angle = Math.random()*Math.PI*2;
+  const dist = 4 + Math.random()*8;
+  const pos = new THREE.Vector3(
+    Math.cos(angle)*dist,
+    (Math.random()-0.5)*6,
+    Math.sin(angle)*dist
+  );
+  createCell(pos, 1);
+  const btn = document.getElementById('add-cell-btn');
+  btn.classList.add('pop');
+  setTimeout(()=>btn.classList.remove('pop'), 300);
+  const flash = document.getElementById('dividing-flash');
+  flash.style.opacity = '0.6';
+  setTimeout(()=>flash.style.opacity='0', 250);
+}
+
+// ========== ZOOM ==========
+
+function zoomStep(dir) {
+  const factor = dir > 0 ? 0.72 : 1.38;
+  const newR = Math.max(2, Math.min(120, spherical.r * factor));
+  animateZoom(newR);
+}
+
+function animateZoom(targetR) {
+  const startR = spherical.r;
+  const diff = targetR - startR;
+  const steps = 20;
+  let step = 0;
+  const tick = () => {
+    step++;
+    const t = step/steps;
+    const ease = 1 - Math.pow(1-t, 3);
+    spherical.r = startR + diff * ease;
+    if(step < steps) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function updateZoomLabel() {
+  const baseR = 30;
+  const zoom = (baseR / Math.max(0.1, spherical.r)).toFixed(1);
+  const el = document.getElementById('zoom-level');
+  if(el) el.textContent = zoom + 'x';
+}
+
+// ========== FOCUS MODE ==========
+function toggleFocusMode() {
+  focusMode = !focusMode;
+  const btn = document.getElementById('focus-btn');
+  const ring = document.getElementById('focus-ring');
+  btn.classList.toggle('active', focusMode);
+  if(focusMode) {
+    ring.style.display = 'block';
+    if(selectedCellId) {
+      const cell = cells.find(c=>c.id===selectedCellId);
+      if(cell) zoomToCell(cell);
+    } else if(cells.length > 0) {
+      selectedCellId = cells[0].id;
+      document.getElementById('cell-panel').style.display = 'block';
+      zoomToCell(cells[0]);
+    }
+  } else {
+    ring.style.display = 'none';
+    animateTargetTo(new THREE.Vector3(0,0,0));
+    animateZoom(30);
+  }
+}
+
+function zoomToCell(cell) {
+  animateTargetTo(cell.group.position.clone());
+  animateZoom(5);
+}
+
+function animateTargetTo(target) {
+  const startTarget = cameraTarget.clone();
+  const diff = target.clone().sub(startTarget);
+  const steps = 30;
+  let step = 0;
+  const tick = () => {
+    step++;
+    const t = step/steps;
+    const ease = 1 - Math.pow(1-t, 3);
+    cameraTarget.copy(startTarget).add(diff.clone().multiplyScalar(ease));
+    if(step < steps) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// ========== INIT ==========
+buildSliders();
+createCell(new THREE.Vector3(0,0,0), 1);
+loop(performance.now());
+</script>
+
+<!-- ============================================================ -->
+<!-- CELLSIM v4 ADDONS — Mutations · Drugs · Lineage · Stats CSV -->
+<!-- ============================================================ -->
+
+<style>
+  /* Left vertical tab strip */
+  #lab-tabs {
+    position:fixed; left:0; top:52px; bottom:0; width:42px;
+    background:rgba(4,8,6,0.85); backdrop-filter:blur(8px);
+    border-right:1px solid rgba(74,222,128,0.15);
+    display:flex; flex-direction:column; align-items:center; padding-top:8px; gap:4px;
+    z-index:140;
+  }
+  .lab-tab-btn {
+    writing-mode:vertical-rl; transform:rotate(180deg);
+    background:rgba(74,222,128,0.08); border:1px solid rgba(74,222,128,0.2);
+    color:#86efac; padding:10px 6px; cursor:pointer; border-radius:0 3px 3px 0;
+    font-family:'Courier New',monospace; font-size:10px; letter-spacing:2px;
+    transition:all 0.2s;
+  }
+  .lab-tab-btn:hover { background:rgba(74,222,128,0.18); color:#4ade80; }
+  .lab-tab-btn.active { background:rgba(74,222,128,0.28); color:#fff; border-color:#4ade80; }
+  .lab-panel {
+    position:fixed; left:-420px; top:52px; bottom:0; width:380px;
+    background:rgba(4,8,6,0.97); backdrop-filter:blur(12px);
+    border-right:1px solid rgba(74,222,128,0.2);
+    z-index:135; transition:left 0.32s cubic-bezier(0.4,0,0.2,1);
+    display:flex; flex-direction:column; overflow:hidden;
+    font-family:'Courier New',monospace; color:#86efac;
+  }
+  .lab-panel.open { left:42px; }
+  .lab-header {
+    font-size:12px; letter-spacing:3px; color:#4ade80;
+    padding:16px 18px 12px; border-bottom:1px solid rgba(74,222,128,0.12);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .lab-body { flex:1; overflow-y:auto; padding:16px 18px; }
+  .lab-body::-webkit-scrollbar { width:4px; }
+  .lab-body::-webkit-scrollbar-thumb { background:rgba(74,222,128,0.2); border-radius:2px; }
+  .lab-section { margin-bottom:18px; }
+  .lab-section-title { font-size:9px; letter-spacing:2px; color:#2d6a4f; margin-bottom:10px; text-transform:uppercase; }
+
+  .drug-row {
+    background:rgba(74,222,128,0.04); border:1px solid rgba(74,222,128,0.12);
+    border-radius:4px; padding:10px 12px; margin-bottom:10px; transition:border-color 0.2s;
+  }
+  .drug-row.active { border-color:rgba(74,222,128,0.6); background:rgba(74,222,128,0.08); }
+  .drug-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .drug-name { font-size:11px; color:#86efac; font-weight:600; letter-spacing:1px; }
+  .drug-toggle {
+    background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3);
+    color:#f87171; padding:3px 9px; border-radius:3px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:9px; letter-spacing:1px;
+  }
+  .drug-toggle.on { background:rgba(74,222,128,0.18); border-color:#4ade80; color:#4ade80; }
+  .drug-desc { font-size:9px; color:#2d6a4f; margin-bottom:6px; line-height:1.4; }
+  .drug-conc {
+    width:100%; -webkit-appearance:none; height:3px; border-radius:2px; outline:none; cursor:pointer;
+    background:rgba(255,255,255,0.1);
+  }
+  .drug-conc::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; cursor:pointer; }
+
+  .mut-chip {
+    display:inline-block; padding:2px 7px; margin:2px 3px 2px 0;
+    border-radius:3px; font-size:9px; letter-spacing:0.5px;
+  }
+
+  .lin-row {
+    font-size:10px; padding:5px 8px; margin-bottom:3px;
+    background:rgba(74,222,128,0.03); border-left:2px solid rgba(74,222,128,0.3);
+    border-radius:0 3px 3px 0; line-height:1.5; cursor:pointer;
+    transition:background 0.15s;
+  }
+  .lin-row:hover { background:rgba(74,222,128,0.1); }
+  .lin-row.alive { border-left-color:#4ade80; }
+  .lin-row.apop { border-left-color:#ef4444; opacity:0.7; }
+  .lin-row.divided { border-left-color:#60a5fa; opacity:0.7; }
+
+  #stats-canvas {
+    width:100%; height:140px; background:rgba(255,255,255,0.02);
+    border:1px solid rgba(74,222,128,0.1); border-radius:4px;
+  }
+  .stat-box {
+    background:rgba(74,222,128,0.05); border:1px solid rgba(74,222,128,0.12);
+    border-radius:4px; padding:8px 10px;
+  }
+  .stat-box-label { font-size:9px; color:#2d6a4f; letter-spacing:1px; }
+  .stat-box-val { font-size:18px; color:#a7f3c8; font-weight:600; margin-top:2px; }
+
+  .lab-btn {
+    background:rgba(74,222,128,0.12); border:1px solid rgba(74,222,128,0.3);
+    color:#4ade80; padding:8px 12px; border-radius:3px; cursor:pointer;
+    font-family:'Courier New',monospace; font-size:10px; letter-spacing:1px;
+    transition:all 0.2s; width:100%;
+  }
+  .lab-btn:hover { background:rgba(74,222,128,0.22); }
+  .lab-btn.danger { background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3); color:#f87171; }
+  .lab-btn.danger:hover { background:rgba(239,68,68,0.2); }
+</style>
+
+<div id="lab-tabs">
+  <button class="lab-tab-btn" data-panel="drugs">TREATMENTS</button>
+  <button class="lab-tab-btn" data-panel="lineage">LINEAGE</button>
+  <button class="lab-tab-btn" data-panel="stats">STATS</button>
+</div>
+
+<div id="panel-drugs" class="lab-panel">
+  <div class="lab-header">TREATMENTS &amp; MUTATIONS
+    <button onclick="closeLabPanels()" style="background:none;border:none;color:#2d6a4f;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div class="lab-body" id="panel-drugs-body"></div>
+</div>
+
+<div id="panel-lineage" class="lab-panel">
+  <div class="lab-header">LINEAGE TREE
+    <button onclick="closeLabPanels()" style="background:none;border:none;color:#2d6a4f;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div class="lab-body" id="panel-lineage-body"></div>
+</div>
+
+<div id="panel-stats" class="lab-panel">
+  <div class="lab-header">RUN STATISTICS
+    <button onclick="closeLabPanels()" style="background:none;border:none;color:#2d6a4f;cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div class="lab-body" id="panel-stats-body"></div>
+</div>
+
+<script>
+(function(){
+  // ============ MUTATION SYSTEM ============
+  const MUTATIONS = {
+    p53_KO:               { name:'p53 KO',         color:'#ef4444', desc:'Loss of TP53 — both checkpoints bypassed.' },
+    oncogene_RAS:         { name:'RAS oncogene',   color:'#f97316', desc:'Constitutive MAPK signaling — accelerated G1.' },
+    chromosomal_instab:   { name:'CIN',            color:'#a78bfa', desc:'Chromosomal instability — random apoptosis spikes.' },
+    apoptosis_resistant:  { name:'Apop-resist',    color:'#fbbf24', desc:'Overexpresses Bcl-2 — resists apoptosis triggers.' },
+    cyclinD_amplification:{ name:'Cyclin D amp',   color:'#86efac', desc:'Cyclin D1 amplification — faster S-phase entry.' },
+  };
+  window.MUTATIONS = MUTATIONS;
+  window.mutationRate = 0.04;   // chance per division for a new mutation
+  window.totalApoptosis = 0;
+  window.lineage = [];          // {id, parent, gen, born, died, fate, mutations, peakMut}
+
+  // ============ DRUG SYSTEM ============
+  const DRUGS = {
+    taxol:       { name:'Taxol (Paclitaxel)', active:false, conc:50, color:'#60a5fa',
+                   desc:'Stabilizes microtubules. Spindle cannot disassemble → metaphase arrest then mitotic catastrophe.' },
+    nocodazole:  { name:'Nocodazole',         active:false, conc:50, color:'#f87171',
+                   desc:'Depolymerizes microtubules. Prophase/metaphase arrest.' },
+    cisplatin:   { name:'Cisplatin',          active:false, conc:50, color:'#a78bfa',
+                   desc:'DNA crosslinker. Triggers apoptosis in replicating (S/G2) cells.' },
+    palbociclib: { name:'Palbociclib',        active:false, conc:50, color:'#fb923c',
+                   desc:'CDK4/6 inhibitor. Suppresses Cyclin D / CDK4 → G1 arrest.' },
+  };
+  window.DRUGS = DRUGS;
+
+  // ============ STATS ============
+  const statsHistory = [];
+  window.statsHistory = statsHistory;
+  let lastStatRecord = 0;
+  const PHASE_ORDER = ['G1','S','G2','prophase','metaphase','anaphase','telophase','cytokinesis'];
+
+  // ============ HOOKS — wrap createCell ============
+  const _origCreate = window.createCell;
+  window.createCell = function(position, generation, parentId, inherited) {
+    const cell = _origCreate(position, generation);
+    cell.parentId = parentId || null;
+    cell.mutations = new Set(inherited || []);
+    cell.bornAt = (typeof bioTime !== 'undefined') ? bioTime : 0;
+    lineage.push({
+      id: cell.id, parent: cell.parentId, gen: generation,
+      born: cell.bornAt, died: null, fate: null,
+      mutations: [...cell.mutations]
+    });
+    return cell;
+  };
+  // re-bind bare name used by original code
+  createCell = window.createCell;
+
+  // ============ HOOKS — wrap finishDivision ============
+  const _origFinishDivision = window.finishDivision || finishDivision;
+  function maybeMutate(parentMuts){
+    const out = new Set(parentMuts);
+    if(Math.random() < window.mutationRate){
+      const keys = Object.keys(MUTATIONS);
+      out.add(keys[Math.floor(Math.random()*keys.length)]);
+    }
+    return [...out];
+  }
+  window.finishDivision = function(cell){
+    totalDivisions++;
+    const newGen = cell.generation + 1;
+    if(newGen > maxGeneration) maxGeneration = newGen;
+    const parentId = cell.id;
+    const parentMut = [...(cell.mutations || [])];
+
+    const offset = new THREE.Vector3((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2)
+                    .normalize().multiplyScalar(cell.radius*1.5);
+    const pos1 = cell.group.position.clone().add(offset);
+    const pos2 = cell.group.position.clone().sub(offset);
+
+    const le = lineage.find(l => l.id === cell.id);
+    if(le && !le.died){ le.died = bioTime; le.fate = 'divided'; }
+
+    scene.remove(cell.group);
+    cells.splice(cells.indexOf(cell), 1);
+
+    const flash = document.getElementById('dividing-flash');
+    if(flash){ flash.style.opacity='1'; setTimeout(()=>flash.style.opacity='0',300); }
+
+    if(cells.length < MAX_CELLS) createCell(pos1, newGen, parentId, maybeMutate(parentMut));
+    if(cells.length < MAX_CELLS) createCell(pos2, newGen, parentId, maybeMutate(parentMut));
+  };
+  finishDivision = window.finishDivision;
+
+  // ============ HOOKS — wrap shouldApoptose for resistance ============
+  const _origShouldApop = window.shouldApoptose || shouldApoptose;
+  window.shouldApoptose = function(cell){
+    if(cell.mutations && cell.mutations.has('apoptosis_resistant')) return false;
+    return _origShouldApop(cell);
+  };
+  shouldApoptose = window.shouldApoptose;
+
+  // ============ HOOKS — wrap update (pre-pass for drugs + mutations + stats) ============
+  const _origUpdate = window.update || update;
+  const _newColor = (h)=> new THREE.Color(h);
+  window.update = function(now){
+    // Apply per-cell mutation + drug effects BEFORE the original simulation step
+    for(const cell of cells){
+      if(!cell || cell.apoptotic || cell.dividing) continue;
+
+      // ---- Mutation effects (continuous) ----
+      if(cell.mutations && cell.mutations.size){
+        if(cell.mutations.has('p53_KO')){
+          cell.proteins.p53 = 0;
+          // Force-pass checkpoints (will be overwritten by updateProteins; re-applied post)
+        }
+        if(cell.mutations.has('oncogene_RAS')){
+          cell.proteins.cyclinD = Math.min(100, cell.proteins.cyclinD + 0.25);
+        }
+        if(cell.mutations.has('cyclinD_amplification')){
+          cell.proteins.cyclinD = Math.min(100, cell.proteins.cyclinD + 0.5);
+          cell.proteins.CDK4    = Math.min(100, cell.proteins.CDK4    + 0.3);
+        }
+        if(cell.mutations.has('chromosomal_instab')){
+          if(Math.random() < 0.00005) cell.apoptotic = true;
+        }
+      }
+
+      // ---- Drug effects ----
+      if(DRUGS.palbociclib.active){
+        const k = DRUGS.palbociclib.conc/100;
+        cell.proteins.CDK4    = Math.max(0, cell.proteins.CDK4    - 1.4*k);
+        cell.proteins.cyclinD = Math.max(0, cell.proteins.cyclinD - 0.8*k);
+      }
+      if(DRUGS.taxol.active && (cell.phase==='metaphase' || cell.phase==='anaphase')){
+        cell.age = Math.min(cell.age, getPhaseDuration(cell.phase) * 0.95);
+        if(Math.random() < 0.0004 * DRUGS.taxol.conc/100 &&
+           !(cell.mutations && cell.mutations.has('apoptosis_resistant'))) cell.apoptotic = true;
+      }
+      if(DRUGS.nocodazole.active && (cell.phase==='prophase' || cell.phase==='metaphase')){
+        cell.age = Math.min(cell.age, getPhaseDuration(cell.phase) * 0.95);
+      }
+      if(DRUGS.cisplatin.active && (cell.phase==='S' || cell.phase==='G2')){
+        const k = DRUGS.cisplatin.conc/100;
+        if(Math.random() < 0.0008*k &&
+           !(cell.mutations && cell.mutations.has('apoptosis_resistant'))) cell.apoptotic = true;
+      }
+    }
+
+    // Run original update
+    _origUpdate(now);
+
+    // ---- Post-pass: re-apply p53_KO checkpoint override AFTER updateProteins ----
+    for(const cell of cells){
+      if(!cell || cell.apoptotic || cell.dividing) continue;
+      if(cell.mutations && cell.mutations.has('p53_KO')){
+        cell.checkpoints.G1S = true;
+        cell.checkpoints.G2M = true;
+      }
+    }
+
+    // ---- Record deaths into lineage ----
+    for(const cell of cells){
+      if(cell.apoptotic){
+        const le = lineage.find(l => l.id === cell.id);
+        if(le && !le.died){ le.died = bioTime; le.fate = 'apoptosis'; window.totalApoptosis++; }
+      }
+    }
+    // catch cells removed externally
+    for(const le of lineage){
+      if(!le.died && !cells.find(c => c.id === le.id)){
+        le.died = bioTime;
+        if(!le.fate) le.fate = 'lost';
+      }
+    }
+
+    // ---- Stats sampling ----
+    const t = performance.now();
+    if(t - lastStatRecord > 500){
+      lastStatRecord = t;
+      const phaseCounts = {};
+      for(const c of cells){
+        const p = c.arrested ? 'arrested' : c.phase;
+        phaseCounts[p] = (phaseCounts[p]||0) + 1;
+      }
+      const mutCount = cells.filter(c => c.mutations && c.mutations.size).length;
+      statsHistory.push({
+        t: bioTime, pop: cells.length, divisions: totalDivisions,
+        apop: window.totalApoptosis, mutated: mutCount, phaseCounts
+      });
+      if(statsHistory.length > 720) statsHistory.shift();
+      if(document.getElementById('panel-stats').classList.contains('open')) drawStatsChart();
+      if(document.getElementById('panel-stats').classList.contains('open')) refreshStatBoxes();
+      if(document.getElementById('panel-lineage').classList.contains('open')) renderLineage();
+    }
+  };
+  update = window.update;
+
+  // ============ Visual tint for mutated cells (post-render lerp) ============
+  const _origRender = window.render || render;
+  const MUT_TINT = new THREE.Color(0xef4444);
+  const MUT_EMIT = new THREE.Color(0x7f1d1d);
+  window.render = function(t){
+    _origRender(t);
+    for(const c of cells){
+      if(c.mutations && c.mutations.size && c.memMat){
+        c.memMat.color.lerp(MUT_TINT, 0.06);
+        c.memMat.emissive.lerp(MUT_EMIT, 0.04);
+      }
+    }
+  };
+  render = window.render;
+
+  // ============ UI — TAB SWITCHING ============
+  window.closeLabPanels = function(){
+    document.querySelectorAll('.lab-panel').forEach(p=>p.classList.remove('open'));
+    document.querySelectorAll('.lab-tab-btn').forEach(b=>b.classList.remove('active'));
+  };
+  document.querySelectorAll('.lab-tab-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const target = btn.dataset.panel;
+      const panel = document.getElementById('panel-'+target);
+      const wasOpen = panel.classList.contains('open');
+      closeLabPanels();
+      if(!wasOpen){
+        panel.classList.add('open');
+        btn.classList.add('active');
+        if(target==='drugs')   renderDrugsPanel();
+        if(target==='lineage') renderLineage();
+        if(target==='stats'){ refreshStatBoxes(); drawStatsChart(); }
+      }
+    });
+  });
+
+  // ============ DRUGS + MUTATIONS PANEL ============
+  function renderDrugsPanel(){
+    const body = document.getElementById('panel-drugs-body');
+    let html = '<div class="lab-section"><div class="lab-section-title">Drugs — toggle &amp; titrate</div>';
+    for(const key of Object.keys(DRUGS)){
+      const d = DRUGS[key];
+      html += `
+        <div class="drug-row ${d.active?'active':''}" id="drug-${key}">
+          <div class="drug-head">
+            <span class="drug-name" style="color:${d.color}">${d.name}</span>
+            <button class="drug-toggle ${d.active?'on':''}" onclick="toggleDrug('${key}')">
+              ${d.active?'● ACTIVE':'○ OFF'}
+            </button>
+          </div>
+          <div class="drug-desc">${d.desc}</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:9px;color:#2d6a4f;letter-spacing:1px;">DOSE</span>
+            <input class="drug-conc" type="range" min="0" max="100" value="${d.conc}"
+              oninput="DRUGS['${key}'].conc=parseInt(this.value);document.getElementById('dose-${key}').textContent=this.value+'%';"
+              style="accent-color:${d.color};">
+            <span id="dose-${key}" style="font-size:10px;color:${d.color};min-width:38px;text-align:right;">${d.conc}%</span>
+          </div>
+        </div>`;
+    }
+    html += `<button class="lab-btn danger" onclick="clearAllDrugs()" style="margin-top:6px;">↺ WASHOUT — clear all drugs</button>`;
+    html += '</div>';
+
+    html += `<div class="lab-section"><div class="lab-section-title">Mutation engine</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-size:10px;">RATE / DIVISION</span>
+        <input type="range" min="0" max="50" value="${Math.round(window.mutationRate*100)}"
+          oninput="window.mutationRate=parseInt(this.value)/100;document.getElementById('mr-val').textContent=this.value+'%';"
+          style="flex:1;accent-color:#ef4444;">
+        <span id="mr-val" style="font-size:10px;color:#f87171;min-width:34px;text-align:right;">${Math.round(window.mutationRate*100)}%</span>
+      </div>
+      <div style="font-size:9px;color:#2d6a4f;line-height:1.5;margin-bottom:10px;">
+        Each division has this chance to introduce a new mutation. Mutations are inherited by both daughters.
+      </div>
+      <button class="lab-btn" onclick="injectRandomMutation()">⚡ INJECT MUTATION INTO RANDOM CELL</button>
+    </div>`;
+
+    html += `<div class="lab-section"><div class="lab-section-title">Mutation legend</div>`;
+    for(const k of Object.keys(MUTATIONS)){
+      const m = MUTATIONS[k];
+      html += `<div style="margin-bottom:8px;">
+        <span class="mut-chip" style="background:${m.color}22;border:1px solid ${m.color}66;color:${m.color}">${m.name}</span>
+        <div style="font-size:9px;color:#2d6a4f;margin-top:3px;line-height:1.5;">${m.desc}</div>
+      </div>`;
+    }
+    html += '</div>';
+    body.innerHTML = html;
+  }
+
+  window.toggleDrug = function(key){
+    DRUGS[key].active = !DRUGS[key].active;
+    renderDrugsPanel();
+  };
+  window.clearAllDrugs = function(){
+    for(const k of Object.keys(DRUGS)) DRUGS[k].active = false;
+    renderDrugsPanel();
+  };
+  window.injectRandomMutation = function(){
+    if(cells.length === 0) return;
+    const cell = cells[Math.floor(Math.random()*cells.length)];
+    const keys = Object.keys(MUTATIONS);
+    const newMut = keys[Math.floor(Math.random()*keys.length)];
+    if(!cell.mutations) cell.mutations = new Set();
+    cell.mutations.add(newMut);
+    const le = lineage.find(l => l.id === cell.id);
+    if(le && !le.mutations.includes(newMut)) le.mutations.push(newMut);
+  };
+
+  // ============ LINEAGE TREE ============
+  function renderLineage(){
+    const body = document.getElementById('panel-lineage-body');
+    const aliveIds = new Set(cells.map(c=>c.id));
+    const byGen = {};
+    for(const le of lineage){
+      (byGen[le.gen] = byGen[le.gen] || []).push(le);
+    }
+    const gens = Object.keys(byGen).map(Number).sort((a,b)=>a-b);
+    let html = `<div style="font-size:10px;color:#2d6a4f;margin-bottom:10px;line-height:1.5;">
+      ${lineage.length} cells across ${gens.length} generations · ${aliveIds.size} alive · ${window.totalApoptosis} apoptotic
+    </div>`;
+    for(const g of gens){
+      const rows = byGen[g].sort((a,b)=>a.id-b.id);
+      html += `<div class="lab-section-title" style="margin-top:10px;">Generation ${g} · ${rows.length} cell${rows.length>1?'s':''}</div>`;
+      for(const le of rows){
+        const alive = aliveIds.has(le.id);
+        const cls = alive ? 'alive' : (le.fate==='apoptosis' ? 'apop' : 'divided');
+        const fate = alive ? '● alive' : (le.fate==='apoptosis' ? '✕ apoptosis' : (le.fate==='divided' ? '↗ divided' : '— ' + (le.fate||'gone')));
+        const muts = le.mutations.map(m=>{
+          const mm = MUTATIONS[m]; if(!mm) return '';
+          return `<span class="mut-chip" style="background:${mm.color}22;border:1px solid ${mm.color}55;color:${mm.color}">${mm.name}</span>`;
+        }).join('');
+        html += `<div class="lin-row ${cls}" onclick="selectCellById(${le.id})">
+          <div><strong style="color:#a7f3c8;">#${le.id}</strong>
+            <span style="color:#2d6a4f;"> ← parent #${le.parent ?? '∅'} · ${fate}</span></div>
+          ${muts ? `<div style="margin-top:3px;">${muts}</div>` : ''}
+        </div>`;
+      }
+    }
+    body.innerHTML = html;
+  }
+
+  window.selectCellById = function(id){
+    const c = cells.find(x => x.id === id);
+    if(!c) return;
+    selectedCellId = id;
+    document.getElementById('cell-panel').style.display = 'block';
+    if(typeof zoomToCell === 'function') zoomToCell(c);
+  };
+
+  // ============ STATS DASHBOARD ============
+  function refreshStatBoxes(){
+    const body = document.getElementById('panel-stats-body');
+    const phaseCounts = {};
+    for(const c of cells){
+      const p = c.arrested ? 'arrested' : c.phase;
+      phaseCounts[p] = (phaseCounts[p]||0)+1;
+    }
+    const mutCount = cells.filter(c => c.mutations && c.mutations.size).length;
+    const PHASE_COLORS_LOCAL = (typeof PHASE_COLORS !== 'undefined') ? PHASE_COLORS : {};
+
+    let html = `<div class="lab-section">
+      <div class="lab-section-title">Run summary</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="stat-box"><div class="stat-box-label">POPULATION</div><div class="stat-box-val">${cells.length}</div></div>
+        <div class="stat-box"><div class="stat-box-label">DIVISIONS</div><div class="stat-box-val" style="color:#60a5fa;">${totalDivisions}</div></div>
+        <div class="stat-box"><div class="stat-box-label">APOPTOSIS</div><div class="stat-box-val" style="color:#f87171;">${window.totalApoptosis}</div></div>
+        <div class="stat-box"><div class="stat-box-label">MUTATED CELLS</div><div class="stat-box-val" style="color:#fbbf24;">${mutCount}</div></div>
+        <div class="stat-box"><div class="stat-box-label">MAX GENERATION</div><div class="stat-box-val">${maxGeneration}</div></div>
+        <div class="stat-box"><div class="stat-box-label">TOTAL LINEAGE</div><div class="stat-box-val">${lineage.length}</div></div>
+      </div>
+    </div>`;
+
+    html += `<div class="lab-section">
+      <div class="lab-section-title">Population over time</div>
+      <canvas id="stats-canvas" width="340" height="140"></canvas>
+      <div style="font-size:9px;color:#2d6a4f;margin-top:4px;">
+        <span style="color:#4ade80;">━ population</span> ·
+        <span style="color:#f87171;">━ apoptosis (cumulative)</span> ·
+        <span style="color:#fbbf24;">━ mutated</span>
+      </div>
+    </div>`;
+
+    html += `<div class="lab-section">
+      <div class="lab-section-title">Phase distribution (live)</div>`;
+    const total = Math.max(1, cells.length);
+    for(const p of PHASE_ORDER.concat(['arrested'])){
+      const cnt = phaseCounts[p]||0;
+      const pct = (cnt/total*100);
+      const col = PHASE_COLORS_LOCAL[p] || '#6b7280';
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <div style="width:78px;font-size:10px;color:${col};">${p}</div>
+        <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${col};transition:width 0.3s;"></div>
+        </div>
+        <div style="width:24px;text-align:right;font-size:10px;color:${col};">${cnt}</div>
+      </div>`;
+    }
+    html += `</div>`;
+
+    html += `<div class="lab-section">
+      <div class="lab-section-title">Export</div>
+      <button class="lab-btn" onclick="exportRunCSV()">⬇ DOWNLOAD RUN DATA (CSV)</button>
+      <div style="font-size:9px;color:#2d6a4f;margin-top:6px;line-height:1.5;">
+        Samples are recorded every ~0.5s. ${statsHistory.length} rows buffered.
+      </div>
+    </div>`;
+    body.innerHTML = html;
+  }
+
+  function drawStatsChart(){
+    const cv = document.getElementById('stats-canvas');
+    if(!cv) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0,0,W,H);
+    if(statsHistory.length < 2) return;
+    const maxPop  = Math.max(8, ...statsHistory.map(s=>s.pop));
+    const maxApop = Math.max(4, ...statsHistory.map(s=>s.apop));
+    const maxAny  = Math.max(maxPop, maxApop);
+    // grid
+    ctx.strokeStyle = 'rgba(74,222,128,0.08)';
+    ctx.lineWidth = 1;
+    for(let i=0;i<5;i++){
+      const y = (i/4)*H;
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+    function line(field, color){
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+      statsHistory.forEach((s, i)=>{
+        const x = (i/(statsHistory.length-1))*W;
+        const y = H - (s[field]/maxAny)*H*0.9 - 4;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+    }
+    line('apop',    '#f87171');
+    line('mutated', '#fbbf24');
+    line('pop',     '#4ade80');
+    // axis label
+    ctx.fillStyle = '#2d6a4f'; ctx.font = '9px Courier New';
+    ctx.fillText(`max ${maxAny}`, 4, 10);
+  }
+
+  window.exportRunCSV = function(){
+    const head = ['bioTime_ms','population','divisions','apoptosis_cum','mutated_alive']
+                 .concat(PHASE_ORDER).concat(['arrested']);
+    const lines = [head.join(',')];
+    for(const s of statsHistory){
+      const row = [s.t.toFixed(0), s.pop, s.divisions, s.apop, s.mutated]
+        .concat(PHASE_ORDER.map(p => s.phaseCounts[p]||0))
+        .concat([s.phaseCounts.arrested||0]);
+      lines.push(row.join(','));
+    }
+    // also append lineage as a second section
+    lines.push('');
+    lines.push('# LINEAGE');
+    lines.push('id,parent,generation,born_ms,died_ms,fate,mutations');
+    for(const le of lineage){
+      lines.push([le.id, le.parent ?? '', le.gen, le.born.toFixed(0),
+                  le.died==null?'':le.died.toFixed(0),
+                  le.fate||'alive',
+                  '"'+le.mutations.join('|')+'"'].join(','));
+    }
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'cellsim_run.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ============ Backfill lineage entry for the initial seed cell ============
+  // The first cell was created BEFORE this addon's createCell wrapper installed,
+  // so register it manually if missing.
+  setTimeout(()=>{
+    for(const c of cells){
+      if(!lineage.find(l => l.id === c.id)){
+        if(!c.mutations) c.mutations = new Set();
+        c.parentId = c.parentId || null;
+        c.bornAt = c.bornAt || 0;
+        lineage.push({
+          id:c.id, parent:null, gen:c.generation, born:0,
+          died:null, fate:null, mutations:[]
+        });
+      }
+    }
+  }, 100);
+
+  console.log('[CELLSIM v4] Mutations · Drugs · Lineage · Stats loaded.');
+})();
+</script>
+
+</body>
+</html>
