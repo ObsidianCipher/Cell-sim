@@ -314,13 +314,13 @@
   .chem-formula { font-size:9px; color:var(--text-dim); }
   .chem-val { font-size:11px; font-weight:600; color:var(--green); min-width:42px; text-align:right; font-variant-numeric:tabular-nums; }
   .chem-slider {
-    width:100%; -webkit-appearance:none; height:3px;
+    width:100%; appearance:none; -webkit-appearance:none; height:3px;
     border-radius:2px; outline:none; cursor:pointer;
     transition:height 0.15s;
   }
   .chem-slider:hover { height:5px; }
   .chem-slider::-webkit-slider-thumb {
-    -webkit-appearance:none; width:13px; height:13px;
+    appearance:none; -webkit-appearance:none; width:13px; height:13px;
     border-radius:50%; cursor:pointer; border:2px solid #060608;
     box-shadow:0 0 6px rgba(0,0,0,0.5);
     transition:transform 0.15s;
@@ -2350,7 +2350,7 @@ loop(performance.now());
   .drug-conc-row { display:flex; align-items:center; gap:8px; margin-top:6px; }
   .drug-conc-label { font-size:8px; color:var(--text-dim); white-space:nowrap; }
   .drug-conc {
-    flex:1; -webkit-appearance:none; height:3px; border-radius:2px;
+    flex:1; -webkit-appearance:none; appearance:none; height:3px; border-radius:2px;
     outline:none; cursor:pointer; background:rgba(255,255,255,0.08);
   }
   .drug-conc::-webkit-slider-thumb {
